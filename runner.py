@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from adapters.lee_county import LeeCountyAdapter
+from models import NormalizedIncident
 from store.sqlite import SqliteStore
 from geocoding.census import CensusGeocoder
 from geocoding.cache import SqliteCache
@@ -37,9 +38,12 @@ def run_source(name: str) -> dict:
 
     incidents = [adapter.normalize(r, fetched_at) for r in raw_records]
 
-    def _try_geocode(geocoding, incident):
-        result = geocoding.geocode(incident.address, incident.city)
-        return incident, result
+    def _try_geocode(geocoding: GeocodingService, incident: NormalizedIncident):
+        try:
+            return incident, geocoding.geocode(incident.address, incident.city)
+        except Exception as e:
+            print(f"    geocode failed for incident {incident.source_incident_id}: {e}")
+            return incident, None
 
     to_geocode = [
         i for i in incidents
