@@ -1,0 +1,13 @@
+from abc import ABC, abstractmethod
+
+class Geocoder(ABC):
+    @abstractmethod
+    def geocode(self, address: str, city: str, state: str = "FL") -> tuple[float, float, str] | None:
+        """Return (lat, lon, quality) or None if no match"""
+
+class GeocodeCache(ABC):
+    @abstractmethod
+    def get(self, key: str) -> tuple[float, float, str] | None: ...
+
+    @abstractmethod
+    def set(self, key: str, lat: float, lon: float, quality: str) -> None: ...
