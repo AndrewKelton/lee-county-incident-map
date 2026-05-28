@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import httpx
 
 USER_AGENT = "LeeCountyIncidentMap/1.0 (senior-design; contact@email.com)"
@@ -15,6 +16,12 @@ class IncidentSource(ABC):
             follow_redirects=True,
         )
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+        reraise=True
+    )
     def fetch_json(self, url: str, params: dict | None = None) -> dict | list:
         """Common case: GET, parse JSON, raise on error"""
         with self._client() as client:
