@@ -23,7 +23,7 @@ class LeeCountyAdapter(IncidentSource):
             source=self.name,
             source_incident_id=str(raw["id"]),
             occurred_at=self._parse_lee_datetime(raw.get("occuredDate")),
-            fetched_at=datetime.now(timezone.utc),
+            fetched_at=fetched_at,
             nature=raw.get("nature"),
             disposition=raw.get("disposition"),
             address=raw.get("address"),
