@@ -9,7 +9,7 @@ class NormalizedIncident(BaseModel):
     lat: float | None = None
     lon: float | None = None
     nature: str | None = None
-    disposition: str | None
+    disposition: str | None = None
     address: str | None = None
     city: str | None = None
     status: str | None = None
