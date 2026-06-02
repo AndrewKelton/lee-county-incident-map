@@ -12,6 +12,7 @@ class NormalizedIncident(BaseModel):
     disposition: str | None
     address: str | None = None
     city: str | None = None
+    status: str | None = None
     geocoded_at: datetime | None = None
     geocode_quality: str | None = None
     raw: dict

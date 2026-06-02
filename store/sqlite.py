@@ -28,6 +28,7 @@ class SqliteStore(IncidentStore):
                 geocoded_at         TEXT,
                 geocode_quality     TEXT,
                 raw                 TEXT NOT NULL,
+                status              TEXT,
                 PRIMARY KEY         (source, source_incident_id)
             );
             CREATE INDEX IF NOT EXISTS idx_occurred_at ON incidents(occurred_at);

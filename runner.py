@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from adapters.lee_county import LeeCountyAdapter
+from adapters.lee_county_traffic import LeeCountyTrafficAdapter
 from models import NormalizedIncident
 from store.sqlite import SqliteStore
 from geocoding.census import CensusGeocoder
@@ -9,7 +10,8 @@ from geocoding.cache import SqliteCache
 from geocoding.service import GeocodingService
 
 REGISTRY = {
-    "lee_county": LeeCountyAdapter
+    "lee_county": LeeCountyAdapter,
+    "lee_county_traffic": LeeCountyTrafficAdapter,
 }
 
 def build_store():
