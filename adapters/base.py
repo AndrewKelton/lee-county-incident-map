@@ -34,7 +34,7 @@ class IncidentSource(ABC):
         with self._client() as client:
             response = client.get(url, params=params)
             response.raise_for_status()
-            return response.text()
+            return response.text
 
     @abstractmethod
     def fetch_raw(self) -> list[dict]:
