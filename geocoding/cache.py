@@ -1,7 +1,7 @@
 import sqlite3
 import threading
 
-from .base import GeocodeCache
+from base import GeocodeCache
 
 class SqliteCache(GeocodeCache):
     def __init__(self, path: str = "geocode_cache.db"):
@@ -36,4 +36,4 @@ class SqliteCache(GeocodeCache):
             self.conn.commit()
 
 class PostgresCache(GeocodeCache):
-    """TODO"""
+    ...
