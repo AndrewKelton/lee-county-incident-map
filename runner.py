@@ -6,7 +6,7 @@ from adapters.lee_county_traffic import LeeCountyTrafficAdapter
 from models import NormalizedIncident
 from store.sqlite import SqliteStore
 from geocoding.census import CensusGeocoder
-from geocoding.cache import SqliteCache
+from geocoding.sqlite_cache import SqliteCache
 from geocoding.service import GeocodingService
 
 REGISTRY = {
