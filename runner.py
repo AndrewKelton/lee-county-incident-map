@@ -3,6 +3,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from adapters.lee_county import LeeCountyAdapter
 from adapters.lee_county_traffic import LeeCountyTrafficAdapter
+from geocoding.composite import CompositeGeocoder
+from geocoding.nominatim import NominatimGeocoder
+from geocoding.overpass import OverpassIntersectionGeocoder
 from models import NormalizedIncident
 from store.sqlite import SqliteStore
 from geocoding.census import CensusGeocoder
@@ -19,7 +22,7 @@ def build_store():
 
 def build_geocoding():
     return GeocodingService(
-        geocoder=CensusGeocoder(),
+        geocoder=CompositeGeocoder([CensusGeocoder(), OverpassIntersectionGeocoder(), NominatimGeocoder()]),
         cache=SqliteCache(),
     )
 
