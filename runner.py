@@ -8,7 +8,6 @@ from geocoding.nominatim import NominatimGeocoder
 from geocoding.overpass import OverpassIntersectionGeocoder
 from models import NormalizedIncident
 from geocoding.census import CensusGeocoder
-from geocoding.sqlite_cache import SqliteCache
 from geocoding.service import GeocodingService
 
 import os
@@ -73,17 +72,20 @@ def run_source(name: str) -> dict:
     ]
     print(f"[{name}] geocoding {len(to_geocode)} records concurrently…")
 
-    geocoded = 0
+    cached_hits = fresh = 0
     with ThreadPoolExecutor(max_workers=10) as pool:
         futures = [pool.submit(_try_geocode, geocoding, i) for i in to_geocode]
         for future in as_completed(futures):
-            incident, result = future.result()
+            incident, (result, from_cache) = future.result()
             if result:
                 incident.lat, incident.lon, incident.geocode_quality = result
                 incident.geocoded_at = datetime.now(timezone.utc)
-                geocoded += 1
+                if from_cache:
+                    cached_hits += 1
+                else:
+                    fresh += 1
 
-    print(f"[{name}] geocoded {geocoded} records (of {len(to_geocode)} attempted)")
+    print(f"[{name}] geocoded {cached_hits + fresh} ({cached_hits} cached, {fresh} fresh)")
 
     print(f"[{name}] upserting...")
     counts = store.upsert(incidents)

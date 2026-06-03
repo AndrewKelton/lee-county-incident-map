@@ -9,13 +9,13 @@ class GeocodingService:
         key = self._key(address, city)
 
         if cached := self.cache.get(key):
-            return cached
+            return cached, True
 
         result = self.geocoder.geocode(address, city)
         if result:
             lat, lon, quality = result
             self.cache.set(key, lat, lon, quality)
-        return result
+        return result, False
 
     @staticmethod
     def _key(address: str, city: str) -> str:
