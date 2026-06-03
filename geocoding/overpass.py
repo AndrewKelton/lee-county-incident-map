@@ -1,5 +1,7 @@
 import httpx
 from geocoding.base import Geocoder
+import time
+import threading
 
 USER_AGENT = "LeeCountyIncidentMap/1.0 (senior-design; real@contact.com)"
 LEE_COUNTY_BBOX = (26.32, -82.30, 26.85, -81.55)  # (south, west, north, east)
@@ -28,9 +30,19 @@ class OverpassIntersectionGeocoder(Geocoder):
     #URL = "https://overpass.private.coffee/api/interpreter"
     BBOX = LEE_COUNTY_BBOX
 
+    _lock = threading.Lock()
+    _last_call = 0.0
+    MIN_INTERVAL = 1.0
+
     def geocode(self, address: str, city: str, state: str = "FL") -> tuple[float, float, str] | None:
         if " / " not in address:
             return None
+
+        with OverpassIntersectionGeocoder._lock:
+            wait = self.MIN_INTERVAL - (time.monotonic() - OverpassIntersectionGeocoder._last_call)
+            if wait > 0:
+                time.sleep(wait)
+            OverpassIntersectionGeocoder._last_call = time.monotonic()
 
         a_raw, b_raw = address.split(" / ", 1)
         a, b = _expand_street(a_raw), _expand_street(b_raw)
