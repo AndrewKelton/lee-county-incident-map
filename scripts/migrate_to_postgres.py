@@ -4,10 +4,9 @@ import sqlite3
 from datetime import datetime
 from models import NormalizedIncident
 from store.postgres import PostgresStore
+from paths import INCIDENTS_DB, GEOCODE_CACHE_DB
 
 PG_URL = os.environ["PG_URL"]
-INCIDENTS_DB = "data/incidents.db"
-CACHE_DB = "geocode_cache.db"
 
 def _dt(s):
     return datetime.fromisoformat(s) if s else None
@@ -47,7 +46,7 @@ def migrate_incidents():
 
 def migrate_cache():
     import psycopg
-    src = sqlite3.connect(CACHE_DB)
+    src = sqlite3.connect(GEOCODE_CACHE_DB)
     src.row_factory = sqlite3.Row
     rows = src.execute("SELECT key, lat, lon, quality FROM geocode_cache").fetchall()
     print(f"Migrating {len(rows)} cache entries...")

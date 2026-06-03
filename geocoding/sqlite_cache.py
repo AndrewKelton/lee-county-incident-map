@@ -1,10 +1,14 @@
 import sqlite3
 import threading
+from pathlib import Path
+from paths import GEOCODE_CACHE_DB
 
 from .base import GeocodeCache
 
 class SqliteCache(GeocodeCache):
-    def __init__(self, path: str = "geocode_cache.db"):
+    def __init__(self, path: str = None):
+        path = Path(path) if path else GEOCODE_CACHE_DB
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.Lock()
         self.conn.execute("""

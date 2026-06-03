@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime
+from paths import INCIDENTS_DB
 from models import NormalizedIncident
 from store.base import IncidentStore
 
@@ -14,8 +14,9 @@ INSERT_SQL = """
              """
 
 class SqliteStore(IncidentStore):
-    def __init__(self, path: str = "data/incidents.db"):
-        Path(path).parent.mkdir(exist_ok=True, parents=True)
+    def __init__(self, path: str = None):
+        path = Path(path) if path else INCIDENTS_DB
+        path.parent.mkdir(exist_ok=True, parents=True)
         self.conn = sqlite3.connect(path)
         self.conn.execute("PRAGMA journal_mode = WAL")
         self._init_schema()
