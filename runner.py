@@ -7,10 +7,11 @@ from geocoding.composite import CompositeGeocoder
 from geocoding.nominatim import NominatimGeocoder
 from geocoding.overpass import OverpassIntersectionGeocoder
 from models import NormalizedIncident
-from store.sqlite import SqliteStore
 from geocoding.census import CensusGeocoder
 from geocoding.sqlite_cache import SqliteCache
 from geocoding.service import GeocodingService
+
+import os
 
 REGISTRY = {
     "lee_county": LeeCountyAdapter,
@@ -18,12 +19,28 @@ REGISTRY = {
 }
 
 def build_store():
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        from store.postgres import PostgresStore
+        return PostgresStore(db_url)
+    from store.sqlite import SqliteStore
     return SqliteStore()
 
 def build_geocoding():
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        from geocoding.postgres_cache import PostgresCache
+        cache = PostgresCache(db_url)
+    else:
+        from geocoding.sqlite_cache import SqliteCache
+        cache = SqliteCache()
     return GeocodingService(
-        geocoder=CompositeGeocoder([CensusGeocoder(), OverpassIntersectionGeocoder(), NominatimGeocoder()]),
-        cache=SqliteCache(),
+        geocoder=CompositeGeocoder([
+            CensusGeocoder(),
+            OverpassIntersectionGeocoder(),
+            NominatimGeocoder()
+        ]),
+        cache=cache,
     )
 
 def run_source(name: str) -> dict:
