@@ -15,7 +15,8 @@ UPSERT_SQL = """
                            THEN EXCLUDED.geocoded_at ELSE incidents.geocoded_at END,
         geocode_quality = CASE WHEN incidents.lat IS NULL
                                THEN EXCLUDED.geocode_quality ELSE incidents.geocode_quality END,
-        status = COALESCE(EXCLUDED.status, incidents.status)
+        status = COALESCE(EXCLUDED.status, incidents.status),
+        disposition = COALESCE(EXCLUDED.disposition, incidents.disposition)
 """
 
 class PostgresStore(IncidentStore):
@@ -61,11 +62,11 @@ class PostgresStore(IncidentStore):
 
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT source_incident_id, lat, status FROM incidents "
+                "SELECT source_incident_id, lat, status, disposition FROM incidents "
                 "WHERE source = %s AND source_incident_id = ANY(%s)",
                 (source, ids),
             )
-            existing = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+            existing = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
 
         inserted = updated = skipped = 0
         for inc in incidents:
@@ -73,7 +74,8 @@ class PostgresStore(IncidentStore):
             if prev is None:
                 inserted += 1
             elif (prev[0] is None and inc.lat is not None) or \
-                    (inc.status is not None and inc.status != prev[1]):
+                 (inc.status is not None and inc.status != prev[1]) or \
+                 (inc.disposition is not None and inc.disposition != prev[2]):
                 updated += 1
             else:
                 skipped += 1

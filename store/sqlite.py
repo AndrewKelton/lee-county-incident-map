@@ -55,7 +55,7 @@ class SqliteStore(IncidentStore):
         with self.conn:
             for incident in incidents:
                 existing = self.conn.execute(
-                    "SELECT lat, status FROM incidents "
+                    "SELECT lat, status, disposition FROM incidents "
                     "WHERE source = ? AND source_incident_id = ?",
                     (incident.source, incident.source_incident_id),
                 ).fetchone()
@@ -65,7 +65,7 @@ class SqliteStore(IncidentStore):
                     inserted += 1
                     continue
 
-                existing_lat, existing_status = existing
+                existing_lat, existing_status, existing_disposition = existing
                 sets, params = [], []
 
                 if existing_lat is None and incident.lat is not None:
@@ -79,6 +79,10 @@ class SqliteStore(IncidentStore):
                 if incident.status is not None and incident.status != existing_status:
                     sets += ["status = ?"]
                     params += [incident.status]
+
+                if incident.disposition is not None and incident.disposition != existing_disposition:
+                    sets += ["disposition = ?"]
+                    params += [incident.disposition]
 
                 if sets:
                     params += [incident.source, incident.source_incident_id]
