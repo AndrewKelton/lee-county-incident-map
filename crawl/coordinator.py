@@ -47,6 +47,7 @@ def claim_next(conn: psycopg.Connection, worker_id: str) -> tuple[str, str, int]
             UPDATE crawl_queries SET status='in_progress', worker_id=%s, started_at=now()
             WHERE query = (
                 SELECT query FROM crawl_queries
+                WHERE status = 'pending'
                     OR (status = 'in_progress' AND started_at < now() - make_interval(mins => %s))
                 ORDER BY depth ASC, query ASC
                 FOR UPDATE SKIP LOCKED
