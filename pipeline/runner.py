@@ -10,9 +10,8 @@ def run_source(name: str) -> dict:
         raise ValueError(f"Unknown source: {name!r}. Available: {sorted(REGISTRY)}")
     adapter = REGISTRY[name]()
     fetched_at = datetime.now(timezone.utc)
-    raw = adapter.fetch_raw()
-    incidents = [adapter.normalize(r, fetched_at) for r in raw]
-    return geocode_and_upsert(incidents, build_store(), build_geocoding(), label=name)
+    incidents = [adapter.normalize(r, fetched_at) for r in adapter.fetch_raw()]
+    return build_store().upsert(incidents)
 
 if __name__ == "__main__":
     import sys
