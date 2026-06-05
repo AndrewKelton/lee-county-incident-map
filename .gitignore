@@ -13,3 +13,4 @@ wheels/
 /build
 
 .env
+street_queries.txt
