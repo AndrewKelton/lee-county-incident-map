@@ -65,3 +65,15 @@ def geocode_and_upsert(
         print(f"[{label}] geocoded {cached + fresh} ({cached} cached, {fresh} fresh)")
     return store.upsert(incidents)
 
+def geocode_pending(store: IncidentStore, geocoding: GeocodingService, limit: int = 150) -> dict[str, int]:
+    rows = store.fetch_ungeocoded(limit)
+    resolved = 0
+    for source, sid, address, city in rows:
+        result, _ = geocoding.geocode(address, city or "")
+        if result:
+            lat, lon, quality = result
+            store.mark_geocoded(source, sid, lat, lon, quality)
+            resolved += 1
+        else:
+            store.mark_geocode_attempt(source, sid)
+    return {"attempted": len(rows), "resolved": resolved}
