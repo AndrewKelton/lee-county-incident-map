@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from models import NormalizedIncident
 
 MAX_GEOCODE_ATTEMPTS = 3
+GEOCODE_LEASE_MINUTES = 15
 
 class IncidentStore(ABC):
     @abstractmethod
@@ -10,8 +11,9 @@ class IncidentStore(ABC):
         """Persist incidents. Return counts: {'inserted': N, 'updated': M, 'skipped': K}."""
 
     @abstractmethod
-    def fetch_ungeocoded(self, limit: int) -> list[tuple[str, str, str, str | None]]:
-        """Rows needing coordinates: (source, source_incident_id, address, city)"""
+    def claim_ungeocoded(self, worker_id: str, limit: int) -> list[tuple[str, str, str, str | None]]:
+        """Atomically lease up to `limit` ungeocoded rows for this worker, return them as
+        (source, source_incident_id, address, city). Free or expired leases are claimable."""
 
     @abstractmethod
     def mark_geocoded(self, source: str, sid: str, lat: float, lon: float, quality: str) -> None:

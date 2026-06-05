@@ -1,10 +1,10 @@
 import sqlite3
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from paths import INCIDENTS_DB
 from models import NormalizedIncident
-from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS
+from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS, GEOCODE_LEASE_MINUTES
 
 INSERT_SQL = """
              INSERT INTO incidents
@@ -120,14 +120,28 @@ class SqliteStore(IncidentStore):
             self.conn.execute(
                 "ALTER TABLE incidents ADD COLUMN geocode_attempts INTEGER NOT NULL DEFAULT 0"
             )
+        if "geocode_locked_by" not in cols:
+            self.conn.execute("ALTER TABLE incidents ADD COLUMN geocode_locked_by TEXT")
+        if "geocode_locked_at" not in cols:
+            self.conn.execute("ALTER TABLE incidents ADD COLUMN geocode_locked_at TEXT")
 
-    def fetch_ungeocoded(self, limit: int) -> list[tuple[str, str, str, str | None]]:
-        return self.conn.execute(
-            "SELECT source, source_incident_id, address, city FROM incidents "
-            "WHERE lat IS NULL AND address IS NOT NULL AND TRIM(address) != '' "
-            "AND geocode_attempts < ? ORDER BY occurred_at DESC LIMIT ?",
-            (MAX_GEOCODE_ATTEMPTS, limit),
-        ).fetchall()
+    def claim_ungeocoded(self, worker_id: str, limit: int) -> list[tuple[str, str, str, str | None]]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=GEOCODE_LEASE_MINUTES)).isoformat()
+        with self.conn:
+            rows = self.conn.execute(
+                "SELECT source, source_incident_id, address, city FROM incidents "
+                "WHERE lat IS NULL AND address IS NOT NULL AND TRIM(address) != '' "
+                "AND geocode_attempts < ? "
+                "ORDER BY occurred_at DESC LIMIT ?",
+                (MAX_GEOCODE_ATTEMPTS, cutoff, limit),
+            ).fetchall()
+            now = datetime.now(timezone.utc).isoformat()
+            self.conn.executemany(
+                "UPDATE incidents SET geocode_locked_by=?, geocode_locked_at=? "
+                "WHERE source=? AND source_incident_id=?",
+                [(worker_id, now, s, sid) for s, sid, _addr, _city in rows],
+            )
+        return rows
 
     def mark_geocoded(self, source: str, sid: str, lat: float, lon: float, quality: str) -> None:
         with self.conn:
@@ -140,7 +154,7 @@ class SqliteStore(IncidentStore):
     def mark_geocode_attempt(self, source: str, sid: str) -> None:
         with self.conn:
             self.conn.execute(
-                "UPDATE incidents SET geocode_attempts = geocode_attempts + 1 "
+                "UPDATE incidents SET geocode_attempts = geocode_attempts + 1, geocode_locked_at = NULL "
                 "WHERE source=? AND source_incident_id=?",
                 (source, sid),
             )

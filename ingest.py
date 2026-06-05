@@ -1,8 +1,5 @@
 import os
-from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from models import NormalizedIncident
 from store.base import IncidentStore
 from geocoding.service import GeocodingService
 from geocoding.composite import CompositeGeocoder
@@ -35,8 +32,8 @@ def build_geocoding() -> GeocodingService:
         cache=cache,
     )
 
-def geocode_pending(store: IncidentStore, geocoding: GeocodingService, limit: int = 150) -> dict[str, int]:
-    rows = store.fetch_ungeocoded(limit)
+def geocode_pending(store: IncidentStore, geocoding: GeocodingService, worker_id: str, limit: int = 150) -> dict[str, int]:
+    rows = store.claim_ungeocoded(worker_id, limit)
     resolved = 0
     for source, sid, address, city in rows:
         result, _ = geocoding.geocode(address, city or "")
