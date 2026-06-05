@@ -4,12 +4,16 @@ import time
 
 import psycopg
 
+from pathlib import Path
+from paths import STREET_QUERIES
+
 from crawl import coordinator
 from crawl.worker import worker_loop
 from ingest import build_store, build_geocoding, geocode_pending
 
-GEOCODE_BATCH = 150     # rows per pass
-
+GEOCODE_BATCH = 50     # rows per pass
+TEST_MAX_REQUESTS = 8  # enough to truncate a busy arterial + chew a few children
+TEST_INTERVAL_SECONDS = 360
 
 def _connect() -> psycopg.Connection:
     db_url = os.environ.get("DATABASE_URL")
@@ -19,14 +23,19 @@ def _connect() -> psycopg.Connection:
 
 def main(argv: list[str]) -> None:
     if len(argv) < 2:
-        sys.exit("Usage: crawl_runner.py {init | work <worker_id> | geocode <worker_id>}")
+        sys.exit("Usage: crawl_runner.py {init | work <worker_id> | geocode <worker_id> | test <worker_id>}")
     cmd = argv[1]
     conn = _connect()
 
     if cmd == "init":
+        path = Path(argv[2]) if len(argv) > 2 else STREET_QUERIES
         coordinator.init_schema(conn)
-        n = coordinator.seed(conn)
+        n = coordinator.seed(conn, path)
         print(f"schema ready; seeded {n} street queries")
+    elif cmd == "test":
+        if len(argv) != 3:
+            sys.exit("Usage: crawl_runner.py test <worker_id>")
+        worker_loop(conn, argv[2], max_requests=TEST_MAX_REQUESTS, interval=TEST_INTERVAL_SECONDS)
     elif cmd == "work":
         if len(argv) != 3:
             sys.exit("Usage: crawl_runner.py work <worker_id>")

@@ -17,10 +17,12 @@ IDLE_POLL_SECONDS = 60
 def _backoff_seconds(attempt: int) -> float:
     return min(30.0 * (2 ** attempt), 600.0)    # 30 seconds -> 10 minute cap
 
-def worker_loop(conn: psycopg.Connection, worker_id: str) -> None:
+def worker_loop(conn: psycopg.Connection, worker_id: str, *, max_requests: int | None = None,
+                interval: float = INTERVAL_SECONDS) -> None:
     adapter = LeeCountyAdapter()
     store = build_store()
     transient_attempts = 0
+    completed = 0
 
     while True:
         claimed = coordinator.claim_next(conn, worker_id)
@@ -64,6 +66,11 @@ def worker_loop(conn: psycopg.Connection, worker_id: str) -> None:
         else:
             coordinator.finish(conn, query, "done", result_count=len(raw))
         print(f"[{worker_id}] {query!r} depth={depth} -> {len(raw)} rows {counts}")
+        completed += 1
+
+        if max_requests is not None and completed >= max_requests:
+            print(f"[{worker_id}] hit max_requests={max_requests}, stopping")
+            return
 
         elapsed = time.monotonic() - started
-        time.sleep(max(0.0, INTERVAL_SECONDS - elapsed) + random.uniform(0, 60))
+        time.sleep(max(0.0, interval - elapsed) + random.uniform(0, 60))
