@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime, timezone
 from store.sqlite import SqliteStore
-from runner import build_geocoding
+from ingest import build_geocoding
 
 
 def backfill(limit: int = 150):
