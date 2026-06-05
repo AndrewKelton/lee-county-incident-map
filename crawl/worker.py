@@ -6,7 +6,7 @@ import httpx
 import psycopg
 
 from adapters.lee_county import LeeCountyAdapter
-from ingest import build_store, build_geocoding, geocode_and_upsert
+from ingest import build_store
 from crawl import coordinator
 
 INTERVAL_SECONDS = 720      # 12 min -> 5 req/hr
@@ -20,7 +20,6 @@ def _backoff_seconds(attempt: int) -> float:
 def worker_loop(conn: psycopg.Connection, worker_id: str) -> None:
     adapter = LeeCountyAdapter()
     store = build_store()
-    geocoding = build_geocoding()
     transient_attempts = 0
 
     while True:
@@ -57,7 +56,7 @@ def worker_loop(conn: psycopg.Connection, worker_id: str) -> None:
 
         fetched_at = datetime.now(timezone.utc)
         incidents = [adapter.normalize(r, fetched_at) for r in raw]
-        counts = geocode_and_upsert(incidents, store, geocoding, label=f"{worker_id}:{query}")
+        counts = store.upsert(incidents)
 
         if len(raw) >= TRUNCATED_AT:
             coordinator.fan_out(conn, query, canonical, depth)

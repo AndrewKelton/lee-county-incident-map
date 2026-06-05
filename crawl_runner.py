@@ -1,10 +1,14 @@
 import os
 import sys
+import time
 
 import psycopg
 
 from crawl import coordinator
 from crawl.worker import worker_loop
+from ingest import build_store, build_geocoding, geocode_pending
+
+GEOCODE_BATCH = 150     # rows per pass
 
 
 def _connect() -> psycopg.Connection:
@@ -29,6 +33,15 @@ def main(argv: list[str]) -> None:
         worker_loop(conn, argv[2])
     elif cmd == "reap":
         print(f"reclaimed {coordinator.reap_stale(conn)} stale in_progress queries")
+    elif cmd == "geocode":
+        store = build_store()
+        geocoding = build_geocoding()
+        print("[geocode] draining ungeocoded incidents")
+        while True:
+            stats = geocode_pending(store, geocoding, limit=GEOCODE_BATCH)
+            print(f"[geocode] {stats}")
+            if stats["attempted"] == 0:
+                time.sleep(600)  # nothing pending; idle, then re-check
     else:
         sys.exit(f"Unknown command: {cmd!r}")
 
