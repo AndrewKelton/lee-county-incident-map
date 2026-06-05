@@ -54,7 +54,7 @@ def geocode_and_upsert(
         for future in as_completed(futures):
             inc, (result, from_cache) = future.result()
             if result:
-                inc.lat, inc.lon, inc.geocode = result
+                inc.lat, inc.lon, inc.geocode_quality = result
                 inc.geocoded_at = datetime.now(timezone.utc)
                 if from_cache:
                     cached += 1
