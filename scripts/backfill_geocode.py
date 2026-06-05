@@ -1,7 +1,5 @@
 import sys
 
-from datetime import datetime, timezone
-from store.sqlite import SqliteStore
 from ingest import build_geocoding, build_store, geocode_pending
 
 

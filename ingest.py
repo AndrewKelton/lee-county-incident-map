@@ -35,36 +35,6 @@ def build_geocoding() -> GeocodingService:
         cache=cache,
     )
 
-def geocode_and_upsert(
-        incidents: list[NormalizedIncident],
-        store: IncidentStore,
-        geocoding: GeocodingService,
-        label: str = ""):
-    def _try(inc: NormalizedIncident) -> tuple[NormalizedIncident, tuple[GeocodeResult, bool]]:
-        try:
-            return inc, geocoding.geocode(inc.address or "", inc.city or "")
-        except Exception as e:
-            print(f"    geocode failed {inc.source_incident_id}: {e}")
-            return inc, (None, False)
-
-    to_geocode = [i for i in incidents if i.lat is None and i.address and i.city]
-    cached = fresh = 0
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        futures = [pool.submit(_try, i) for i in to_geocode]
-        for future in as_completed(futures):
-            inc, (result, from_cache) = future.result()
-            if result:
-                inc.lat, inc.lon, inc.geocode_quality = result
-                inc.geocoded_at = datetime.now(timezone.utc)
-                if from_cache:
-                    cached += 1
-                else:
-                    fresh += 1
-
-    if label:
-        print(f"[{label}] geocoded {cached + fresh} ({cached} cached, {fresh} fresh)")
-    return store.upsert(incidents)
-
 def geocode_pending(store: IncidentStore, geocoding: GeocodingService, limit: int = 150) -> dict[str, int]:
     rows = store.fetch_ungeocoded(limit)
     resolved = 0

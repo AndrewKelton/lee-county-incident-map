@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from adapters.lee_county import LeeCountyAdapter
 from adapters.lee_county_traffic import LeeCountyTrafficAdapter
-from ingest import build_store, build_geocoding, geocode_and_upsert
+from ingest import build_store
 
 REGISTRY = {"lee_county": LeeCountyAdapter, "lee_county_traffic": LeeCountyTrafficAdapter}
 
