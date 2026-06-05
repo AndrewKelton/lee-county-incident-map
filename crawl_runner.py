@@ -28,7 +28,7 @@ def main(argv: list[str]) -> None:
             sys.exit("Usage: crawl_runner.py work <worker_id>")
         worker_loop(conn, argv[2])
     elif cmd == "reap":
-        print(f"reclaimed {coordinator.reap_stale(conn)} stale in_progress_queries")
+        print(f"reclaimed {coordinator.reap_stale(conn)} stale in_progress queries")
     else:
         sys.exit(f"Unknown command: {cmd!r}")
 
