@@ -15,6 +15,9 @@ class LeeCountyAdapter(IncidentSource):
         naive = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
         return naive.replace(tzinfo=EASTERN).astimezone(timezone.utc)
 
+    def fetch_by_address(self, address: str) -> list[dict]:
+        return self.fetch_json(self.URL, params={"address": address, "limit": 1000})
+
     def fetch_raw(self) -> list[dict]:
         return self.fetch_json(self.URL, params={"limit": 1000})
 

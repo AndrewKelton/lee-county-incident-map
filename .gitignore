@@ -14,3 +14,5 @@ wheels/
 
 .env
 street_queries.txt
+
+.idea
