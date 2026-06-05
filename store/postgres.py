@@ -1,7 +1,7 @@
 import psycopg
 from psycopg.types.json import Jsonb
 from models import NormalizedIncident
-from store.base import IncidentStore
+from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS
 
 UPSERT_SQL = """
     INSERT INTO incidents
@@ -45,6 +45,7 @@ class PostgresStore(IncidentStore):
                     PRIMARY KEY (source, source_incident_id)
                 );
             """)
+            cur.execute("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS geocode_attempts INTEGER NOT NULL DEFAULT 0")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_occurred "
                         "ON incidents (occurred_at DESC);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_source_time "
@@ -97,3 +98,31 @@ class PostgresStore(IncidentStore):
             i.status,
             Jsonb(i.raw),
         )
+
+    def fetch_ungeocoded(self, limit: int) -> list[tuple[str, str, str, str | None]]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT source, source_incident_id, address, city FROM incidents "
+                "WHERE lat IS NULL AND address IS NOT NULL AND TRIM(address) <> '' "
+                "AND geocode_attempts < %s ORDER BY occurred_at DESC LIMIT %s",
+                (MAX_GEOCODE_ATTEMPTS, limit),
+            )
+            return cur.fetchall()
+
+    def mark_geocoded(self, source: str, sid: str, lat: float, lon: float, quality: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE incidents SET lat=%s, lon=%s, geocoded_at=now(), geocode_quality=%s "
+                "WHERE source=%s AND source_incident_id=%s",
+                (lat, lon, quality, source, sid),
+            )
+        self.conn.commit()
+
+    def mark_geocode_attempt(self, source: str, sid: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE incidents SET geocode_attempts = geocode_attempts + 1 "
+                "WHERE source=%s AND source_incident_id=%s",
+                (source, sid),
+            )
+        self.conn.commit()
