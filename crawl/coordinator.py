@@ -77,7 +77,7 @@ def finish(
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE crawl_queries SET status=%s, result_count=%s, error_message=%s, "
-            "completed_at=now(), worker_id=NULL WHERE query=%s",
+            "completed_at=now() WHERE query=%s",
             (status, result_count, error, query))
     conn.commit()
 
