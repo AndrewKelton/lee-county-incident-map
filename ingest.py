@@ -41,8 +41,8 @@ def geocode_pending(store: IncidentStore, geocoding: GeocodingService, worker_id
     def _try(row):
         source_, sid_, address_, city_ = row
         try:
-            result_, from_cache = geocoding.geocode(address_, city_ or "")
-            return row, result_, from_cache
+            result_, from_cache_ = geocoding.geocode(address_, city_ or "")
+            return row, result_, from_cache_
         except Exception as e:
             print(f"    geocode failed {sid_}: {e}")
             return row, None, None
