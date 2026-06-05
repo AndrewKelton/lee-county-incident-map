@@ -19,7 +19,7 @@ def _connect() -> psycopg.Connection:
 
 def main(argv: list[str]) -> None:
     if len(argv) < 2:
-        sys.exit("Usage: crawl_runner.py {init | work <worker_id> | geocode <worker_id> | reap}")
+        sys.exit("Usage: crawl_runner.py {init | work <worker_id> | geocode <worker_id>}")
     cmd = argv[1]
     conn = _connect()
 
@@ -31,8 +31,6 @@ def main(argv: list[str]) -> None:
         if len(argv) != 3:
             sys.exit("Usage: crawl_runner.py work <worker_id>")
         worker_loop(conn, argv[2])
-    elif cmd == "reap":
-        print(f"reclaimed {coordinator.reap_stale(conn)} stale in_progress queries")
     elif cmd == "geocode":
         if len(argv) != 3:
             sys.exit("Usage: crawl_runner.py geocode <worker_id>")

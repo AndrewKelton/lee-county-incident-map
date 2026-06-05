@@ -21,6 +21,8 @@ SCHEMA = """
     CREATE INDEX IF NOT EXISTS idx_crawl_canonical  ON crawl_queries(canonical);
 """
 
+STALE_AFTER_MINUTES = 240
+
 def init_schema(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute(SCHEMA)
@@ -37,6 +39,7 @@ def seed(conn: psycopg.Connection, path: Path = STREET_QUERIES) -> int:
     conn.commit()
     return len(names)
 
+
 def claim_next(conn: psycopg.Connection, worker_id: str) -> tuple[str, str, int] | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -44,18 +47,18 @@ def claim_next(conn: psycopg.Connection, worker_id: str) -> tuple[str, str, int]
             UPDATE crawl_queries SET status='in_progress', worker_id=%s, started_at=now()
             WHERE query = (
                 SELECT query FROM crawl_queries
-                WHERE status='pending'
-                ORDER BY depth ASC, query ASC 
+                    OR (status = 'in_progress' AND started_at < now() - make_interval(mins => %s))
+                ORDER BY depth ASC, query ASC
                 FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
+                LIMIT 1 
+            ) 
             RETURNING query, canonical, depth
             """,
-            (worker_id,),
+            (worker_id, STALE_AFTER_MINUTES),
         )
         row = cur.fetchone()
     conn.commit()
-    return row  # (query, canonical, depth) or None
+    return row # (query, canonical, depth) or None
 
 def fan_out(conn: psycopg.Connection, parent: str, canonical: str, depth: int) -> None:
     children = [(f"{d} {parent}" if depth == 0 else f"{d}{parent}") for d in "0123456789"]
