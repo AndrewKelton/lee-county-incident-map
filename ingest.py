@@ -2,12 +2,17 @@ import os
 import psycopg
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from dotenv import load_dotenv
+
+from paths import PROJECT_ROOT
 from store.base import IncidentStore
 from geocoding.service import GeocodingService
 from geocoding.composite import CompositeGeocoder
 from geocoding.census import CensusGeocoder
 from geocoding.overpass import OverpassIntersectionGeocoder
 from geocoding.nominatim import NominatimGeocoder
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 CONNECTION_ERRORS = (psycopg.OperationalError, psycopg.InterfaceError)
 
