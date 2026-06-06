@@ -21,7 +21,7 @@ UPSERT_SQL = """
 
 class PostgresStore(IncidentStore):
     def __init__(self, conn_string: str):
-        self.conn = psycopg.connect(conn_string)
+        self.conn = psycopg.connect(conn_string, autocommit=True)
         self._init_schema()
 
     def _init_schema(self):

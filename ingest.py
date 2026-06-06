@@ -1,4 +1,5 @@
 import os
+import psycopg
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from store.base import IncidentStore
@@ -8,7 +9,11 @@ from geocoding.census import CensusGeocoder
 from geocoding.overpass import OverpassIntersectionGeocoder
 from geocoding.nominatim import NominatimGeocoder
 
+CONNECTION_ERRORS = (psycopg.OperationalError, psycopg.InterfaceError)
+
 GeocodeResult = tuple[float, float, str] | None     # (lat, lon, quality) or None
+PendingRow = tuple[str, str, str, str | None] # (source, source_incident_id, address, city)
+
 
 def build_store() -> IncidentStore:
     db_url = os.environ.get("DATABASE_URL")
@@ -38,14 +43,14 @@ def geocode_pending(store: IncidentStore, geocoding: GeocodingService, worker_id
     if not rows:
         return {"attempted": 0, "resolved": 0}
 
-    def _try(row):
+    def _try(row) -> tuple[PendingRow, GeocodeResult, bool]:
         source_, sid_, address_, city_ = row
         try:
             result_, from_cache_ = geocoding.geocode(address_, city_ or "")
             return row, result_, from_cache_
         except Exception as e:
             print(f"    geocode failed {sid_}: {e}")
-            return row, None, None
+            return row, None, False
 
     resolved = cached = 0
     with ThreadPoolExecutor(max_workers=10) as pool:
