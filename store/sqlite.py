@@ -132,6 +132,7 @@ class SqliteStore(IncidentStore):
                 "SELECT source, source_incident_id, address, city FROM incidents "
                 "WHERE lat IS NULL AND address IS NOT NULL AND TRIM(address) != '' "
                 "AND geocode_attempts < ? "
+                "AND (geocode_locked_at IS NULL OR geocode_locked_at < ?) "
                 "ORDER BY occurred_at DESC LIMIT ?",
                 (MAX_GEOCODE_ATTEMPTS, cutoff, limit),
             ).fetchall()

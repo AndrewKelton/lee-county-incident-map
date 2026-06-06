@@ -41,7 +41,7 @@ def build_geocoding() -> GeocodingService:
 def geocode_pending(store: IncidentStore, geocoding: GeocodingService, worker_id: str, limit: int = 150) -> dict[str, int]:
     rows = store.claim_ungeocoded(worker_id, limit)
     if not rows:
-        return {"attempted": 0, "resolved": 0}
+        return {"attempted": 0, "resolved": 0, "cached": 0, "fresh": 0}
 
     def _try(row) -> tuple[PendingRow, GeocodeResult, bool]:
         source_, sid_, address_, city_ = row

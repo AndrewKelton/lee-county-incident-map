@@ -16,5 +16,5 @@ def run_source(name: str) -> dict:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
-        print("Usage: uv run python -m pipeline.runner <source_name>")
+        sys.exit("Usage: uv run python -m pipeline.runner <source_name>")
     run_source(sys.argv[1])
