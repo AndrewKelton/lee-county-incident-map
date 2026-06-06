@@ -11,7 +11,10 @@ def run_source(name: str) -> dict:
     adapter = REGISTRY[name]()
     fetched_at = datetime.now(timezone.utc)
     incidents = [adapter.normalize(r, fetched_at) for r in adapter.fetch_raw()]
-    return build_store().upsert(incidents)
+    counts = build_store().upsert(incidents)
+    print(f"[{name}] {len(incidents)} fetched -> "
+          f"{counts['inserted']} inserted, {counts['updated']} updated, {counts['skipped']} skipped")
+    return counts
 
 if __name__ == "__main__":
     import sys
