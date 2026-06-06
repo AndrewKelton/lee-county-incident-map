@@ -23,7 +23,7 @@ _DIRECTIONS = {
 
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    #"https://maps.mail.ru/osm/tools/overpass/api/interpreter",     Seems to be down, consistent 403 response on all requests
     "https://overpass.private.coffee/api/interpreter",
 ]
 
@@ -45,7 +45,7 @@ class OverpassIntersectionGeocoder(Geocoder):
     MIN_INTERVAL = 1.0
     BUSY_COOLDOWN = 30.0
     MAX_COOLDOWN = 120.0
-    REQUEST_TIMEOUT = 40.0
+    REQUEST_TIMEOUT = 90.0
 
     _lock = threading.Lock()
     _endpoints = [_Endpoint(u) for u in ENDPOINTS]
