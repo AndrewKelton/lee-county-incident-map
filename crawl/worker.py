@@ -10,9 +10,9 @@ from adapters.lee_county import LeeCountyAdapter
 from ingest import build_store, CONNECTION_ERRORS
 from crawl import coordinator
 
-INTERVAL_SECONDS = 720      # 12 min -> 5 req/hr
+INTERVAL_SECONDS = 900      # 15 min -> 4 req/hr
 TRUNCATED_AT = 1000
-THROTTLE_PAUSE_SECONDS = 90 * 60    # 429 -> wait for 90 min
+THROTTLE_PAUSE_SECONDS = 60 * 60    # 429 -> wait for 60 min
 IDLE_POLL_SECONDS = 60
 RECONNECT_PAUSE_SECONDS = 5
 

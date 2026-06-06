@@ -185,7 +185,7 @@ The live API only exposes the most recent ~1,000 records with no pagination, so 
 
 **Coordination.** A `crawl_queries` table on Neon is the shared work queue. Workers — collaborators each running on their own home connection, each respecting the published per-IP rate limit — atomically claim a pending query (`FOR UPDATE SKIP LOCKED`), fetch it, write any results, and on a truncated (1,000-record) result fan out ten children back into the queue. The claim is **self-healing**: it also picks up queries left `in_progress` by a worker that crashed, so no separate reaper is needed. Harvesting only writes raw records; geocoding is a separate `geocode` pass that drains un-geocoded rows, coordinated across workers by a 15-minute **row lease** (`geocode_locked_by` / `geocode_locked_at`) so collaborators don't redo each other's work.
 
-**Rate discipline.** The binding limit is ~250 requests per IP per 2 days, so each worker self-paces to one request every ~12 minutes (≈5/hour, ≈240 per 48h). Throughput scales by adding collaborators, not by going faster; a full crawl is a multi-week effort.
+**Rate discipline.** The binding limit is ~50 requests per IP per 12 hours, so each worker self-paces to one request every ~15 minutes (≈4/hour, ≈48 per 12h). Throughput scales by adding collaborators, not by going faster; a full crawl is a multi-week effort.
 
 **Running it** (set `DATABASE_URL` to the shared Neon connection string):
 
