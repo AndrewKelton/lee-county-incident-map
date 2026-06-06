@@ -3,7 +3,8 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import httpx
 
-USER_AGENT = "LeeCountyIncidentMap/1.0 (senior-design; contact@email.com)"
+from config import USER_AGENT
+
 DEFAULT_TIMEOUT = 30.0
 
 class IncidentSource(ABC):

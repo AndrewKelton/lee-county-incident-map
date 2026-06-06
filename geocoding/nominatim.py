@@ -2,8 +2,7 @@ import time
 import threading
 import httpx
 from geocoding.base import Geocoder
-
-USER_AGENT = "LeeCountyIncidentMap/1.0 (senior-design; contact@email.com)"
+from config import USER_AGENT
 
 class NominatimGeocoder(Geocoder):
     URL = "https://nominatim.openstreetmap.org/search"

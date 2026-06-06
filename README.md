@@ -223,7 +223,7 @@ Deployment artifact is a `.zip` built with Linux-targeted wheels so the compiled
 uv pip install --python-platform x86_64-manylinux2014 --python-version 3.12 \
   --target build/package --only-binary :all: -r requirements.txt
 cp -r adapters geocoding store pipeline build/package/
-cp models.py paths.py ingest.py build/package/
+cp models.py paths.py ingest.py config.py build/package/
 cd build/package && zip -rq ../lambda.zip . && cd ../..
 ```
 

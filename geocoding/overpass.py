@@ -5,7 +5,8 @@ from geocoding.base import Geocoder
 import time
 import threading
 
-USER_AGENT = "LeeCountyIncidentMap/1.0 (senior-design; real@contact.com)"
+from config import USER_AGENT
+
 LEE_COUNTY_BBOX = (26.32, -82.30, 26.85, -81.55)  # (south, west, north, east)
 
 _STREET_TYPES = {
