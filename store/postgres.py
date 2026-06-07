@@ -5,9 +5,9 @@ from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS, GEOCODE_LEASE_MINUTE
 
 UPSERT_SQL = """
     INSERT INTO incidents
-        (source, source_incident_id, occurred_at, fetched_at, lat, lon,
+        (source, source_incident_id, occurred_at, fetched_at, last_changed, lat, lon,
          nature, disposition, address, city, geocoded_at, geocode_quality, status, raw)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES {values}
     ON CONFLICT (source, source_incident_id) DO UPDATE SET
         lat = COALESCE(incidents.lat, EXCLUDED.lat),
         lon = COALESCE(incidents.lon, EXCLUDED.lon),
@@ -16,8 +16,25 @@ UPSERT_SQL = """
         geocode_quality = CASE WHEN incidents.lat IS NULL
                                THEN EXCLUDED.geocode_quality ELSE incidents.geocode_quality END,
         status = COALESCE(EXCLUDED.status, incidents.status),
-        disposition = COALESCE(EXCLUDED.disposition, incidents.disposition)
+        disposition = COALESCE(EXCLUDED.disposition, incidents.disposition),
+        last_changed = CASE
+            WHEN incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
+              OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
+            THEN EXCLUDED.last_changed ELSE incidents.last_changed END,
+        raw = CASE
+            WHEN incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
+              OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
+            THEN EXCLUDED.raw ELSE incidents.raw END
+    WHERE (incidents.lat IS NULL AND EXCLUDED.lat IS NOT NULL)
+       OR incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
+       OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
+    RETURNING (xmax = 0) AS inserted
 """
+
+_COLUMNS = 15
+# A single statement is capped at 65535 bind params (65535/15 = 4369 rows). Chunk well
+# under that so any batch size -- including a backlogged worker's hourly dump -- is safe.
+_MAX_ROWS_PER_STATEMENT = 1000
 
 class PostgresStore(IncidentStore):
     def __init__(self, conn_string: str):
@@ -48,6 +65,10 @@ class PostgresStore(IncidentStore):
             cur.execute("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS geocode_attempts INTEGER NOT NULL DEFAULT 0")
             cur.execute("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS geocode_locked_by TEXT")
             cur.execute("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS geocode_locked_at TIMESTAMPTZ")
+            # last_changed = last time status/disposition moved; fetched_at already
+            # serves as "first seen". Backfill runs once (NULL only on first deploy).
+            cur.execute("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS last_changed TIMESTAMPTZ")
+            cur.execute("UPDATE incidents SET last_changed = fetched_at WHERE last_changed IS NULL")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_occurred "
                         "ON incidents (occurred_at DESC);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_source_time "
@@ -60,40 +81,34 @@ class PostgresStore(IncidentStore):
         if not incidents:
             return {"inserted": 0, "updated": 0, "skipped": 0}
 
-        source = incidents[0].source
-        ids = [i.source_incident_id for i in incidents]
-
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT source_incident_id, lat, status, disposition FROM incidents "
-                "WHERE source = %s AND source_incident_id = ANY(%s)",
-                (source, ids),
-            )
-            existing = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
-
-        inserted = updated = skipped = 0
+        by_key: dict[tuple[str, str], NormalizedIncident] = {}
         for inc in incidents:
-            prev = existing.get(inc.source_incident_id)
-            if prev is None:
-                inserted += 1
-            elif (prev[0] is None and inc.lat is not None) or \
-                 (inc.status is not None and inc.status != prev[1]) or \
-                 (inc.disposition is not None and inc.disposition != prev[2]):
-                updated += 1
-            else:
-                skipped += 1
+            by_key[(inc.source, inc.source_incident_id)] = inc
+        rows = [self._to_row(i) for i in by_key.values()]
 
+        row_ph = "(" + ",".join(["%s"] * _COLUMNS) + ")"
+        inserted = updated = 0
         with self.conn.cursor() as cur:
-            cur.executemany(UPSERT_SQL, [self._to_row(i) for i in incidents])
+            for start in range(0, len(rows), _MAX_ROWS_PER_STATEMENT):
+                chunk = rows[start:start + _MAX_ROWS_PER_STATEMENT]
+                sql = UPSERT_SQL.format(values=",".join([row_ph] * len(chunk)))
+                cur.execute(sql, [v for row in chunk for v in row])
+                for (is_insert,) in cur.fetchall():
+                    if is_insert:
+                        inserted += 1
+                    else:
+                        updated += 1
         self.conn.commit()
 
+        skipped = len(rows) - inserted - updated
         return {"inserted": inserted, "updated": updated, "skipped": skipped}
+
 
     @staticmethod
     def _to_row(i: NormalizedIncident) -> tuple:
         return (
             i.source, i.source_incident_id,
-            i.occurred_at, i.fetched_at,
+            i.occurred_at, i.fetched_at, i.fetched_at,   # fetched_at(=first seen), last_changed
             i.lat, i.lon,
             i.nature, i.disposition, i.address, i.city,
             i.geocoded_at, i.geocode_quality,

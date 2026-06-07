@@ -8,10 +8,10 @@ from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS, GEOCODE_LEASE_MINUTE
 
 INSERT_SQL = """
              INSERT INTO incidents
-             (source, source_incident_id, occurred_at, fetched_at, lat, lon,
+             (source, source_incident_id, occurred_at, fetched_at, last_changed, lat, lon,
               nature, disposition, address, city, geocoded_at, geocode_quality,
               status, raw)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              """
 
 class SqliteStore(IncidentStore):
@@ -29,6 +29,7 @@ class SqliteStore(IncidentStore):
                 source_incident_id  TEXT NOT NULL,
                 occurred_at         TEXT NOT NULL,
                 fetched_at          TEXT NOT NULL,
+                last_changed        TEXT,
                 lat                 REAL,
                 lon                 REAL,
                 nature              TEXT,
@@ -77,18 +78,28 @@ class SqliteStore(IncidentStore):
                         incident.geocode_quality,
                     ]
 
+                content_changed = False
+
                 if incident.status is not None and incident.status != existing_status:
                     sets += ["status = ?"]
                     params += [incident.status]
+                    content_changed = True
 
                 if incident.disposition is not None and incident.disposition != existing_disposition:
                     sets += ["disposition = ?"]
                     params += [incident.disposition]
+                    content_changed = True
+
+                # last_changed + raw advance only on a real content change, never on a
+                # geocode fill (mirrors the Postgres upsert).
+                if content_changed:
+                    sets += ["last_changed = ?", "raw = ?"]
+                    params += [incident.fetched_at.isoformat(), json.dumps(incident.raw)]
 
                 if sets:
                     params += [incident.source, incident.source_incident_id]
                     self.conn.execute(
-                        f"UPDATE incidents SET {', '.join(sets)}"
+                        f"UPDATE incidents SET {', '.join(sets)} "
                         f"WHERE source = ? AND source_incident_id = ?",
                         params
                     )
@@ -104,7 +115,7 @@ class SqliteStore(IncidentStore):
     def _to_row(i: NormalizedIncident) -> tuple:
         return (
             i.source, i.source_incident_id,
-            i.occurred_at.isoformat(), i.fetched_at.isoformat(),
+            i.occurred_at.isoformat(), i.fetched_at.isoformat(), i.fetched_at.isoformat(),
             i.lat, i.lon, i.nature, i.disposition, i.address, i.city,
             i.geocoded_at.isoformat() if i.geocoded_at else None,
             i.geocode_quality,
@@ -124,6 +135,9 @@ class SqliteStore(IncidentStore):
             self.conn.execute("ALTER TABLE incidents ADD COLUMN geocode_locked_by TEXT")
         if "geocode_locked_at" not in cols:
             self.conn.execute("ALTER TABLE incidents ADD COLUMN geocode_locked_at TEXT")
+        if "last_changed" not in cols:
+            self.conn.execute("ALTER TABLE incidents ADD COLUMN last_changed TEXT")
+            self.conn.execute("UPDATE incidents SET last_changed = fetched_at WHERE last_changed IS NULL")
 
     def claim_ungeocoded(self, worker_id: str, limit: int) -> list[tuple[str, str, str, str | None]]:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=GEOCODE_LEASE_MINUTES)).isoformat()
