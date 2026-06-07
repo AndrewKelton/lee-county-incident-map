@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 
 import psycopg
 
@@ -8,13 +7,8 @@ from pathlib import Path
 from paths import STREET_QUERIES
 
 from crawl import coordinator
-from crawl.worker import worker_loop, RECONNECT_PAUSE_SECONDS
-from ingest import build_store, build_geocoding, geocode_pending, CONNECTION_ERRORS
-
-GEOCODE_BATCH = 50     # rows per pass
-TEST_MAX_REQUESTS = 8  # enough to truncate a busy arterial + chew a few children
-TEST_INTERVAL_SECONDS = 360
-DRAINED_SLEEP_SECONDS = 600
+from crawl.worker import run_harvest
+from sync.geocode_worker import run_geocode
 
 def _connect() -> psycopg.Connection:
     db_url = os.environ.get("DATABASE_URL")
@@ -33,33 +27,20 @@ def main(argv: list[str]) -> None:
         coordinator.init_schema(conn)
         n = coordinator.seed(conn, path)
         print(f"schema ready; seeded {n} street queries")
-    elif cmd == "test":
-        if len(argv) != 3:
-            sys.exit("Usage: crawl_runner.py test <worker_id>")
-        worker_loop(_connect, argv[2], max_requests=TEST_MAX_REQUESTS, interval=TEST_INTERVAL_SECONDS)
     elif cmd == "work":
         if len(argv) != 3:
             sys.exit("Usage: crawl_runner.py work <worker_id>")
-        worker_loop(_connect, argv[2])
+        run_harvest(argv[2])                       # harvest, hourly outbox sync
     elif cmd == "geocode":
         if len(argv) != 3:
             sys.exit("Usage: crawl_runner.py geocode <worker_id>")
-        worker_id = argv[2]
-        store = build_store()
-        geocoding = build_geocoding()
-        print(f"[{worker_id}] draining ungeocoded incidents")
-        while True:
-            try:
-                stats = geocode_pending(store, geocoding, worker_id, limit=GEOCODE_BATCH)
-            except CONNECTION_ERRORS as e:
-                print(f"[{worker_id}] DB connection lost ({e}); reconnecting...")
-                time.sleep(RECONNECT_PAUSE_SECONDS)
-                store = build_store()
-                geocoding = build_geocoding()
-                continue
-            print(f"[{worker_id}] {stats}")
-            if stats["attempted"] == 0:
-                time.sleep(DRAINED_SLEEP_SECONDS)  # nothing pending; idle, then re-check
+        run_geocode(argv[2])                        # geocode, hourly outbox sync
+    elif cmd == "test":
+        if len(argv) != 3:
+            sys.exit("Usage: crawl_runner.py test <worker_id>")
+        # Gentle smoke: 1 fetch/tick, 2 ticks, so you see a full lease -> fetch -> (next tick)
+        # flush cycle with only ~2 real API requests ~60s apart (won't trip the burst limit).
+        run_harvest(argv[2], lease=1, period=60, jitter=0, max_ticks=2)
     else:
         sys.exit(f"Unknown command: {cmd!r}")
 

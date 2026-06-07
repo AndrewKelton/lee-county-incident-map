@@ -60,3 +60,6 @@ class PostgresCache(GeocodeCache):
                 "quality=EXCLUDED.quality, cached_at=now()",
                 (keys, lats, lons, quals),
             )
+
+    def close(self):
+        self.conn.close()

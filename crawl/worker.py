@@ -1,85 +1,106 @@
-import random
+"""Harvest worker, sync model: claim a batch of queries, fetch them offline over the hour
+buffering results to a local outbox, and touch Neon only at the hourly sync (flush + lease).
+
+Split into testable pieces:
+  - harvest_tick(): the Neon session (flush buffered ops, claim the next batch)
+  - process_query(): one offline fetch -> outbox ops (no Neon)
+  - run_harvest(): the loop that schedules ticks and paces fetches
+"""
+import os
 import time
-from collections.abc import Callable
 from datetime import datetime, timezone
 
 import httpx
-import psycopg
 
 from adapters.lee_county import LeeCountyAdapter
-from ingest import build_store, CONNECTION_ERRORS
+from ingest import CONNECTION_ERRORS
+from store.postgres import PostgresStore
 from crawl import coordinator
+from paths import DATA_DIR
+from sync.outbox import Outbox
+from sync.flush import flush_harvest
+from sync.schedule import (
+    HARVEST_LEASE, HARVEST_INTERVAL_SECONDS, TRUNCATED_AT,
+    SYNC_PERIOD_SECONDS, SYNC_JITTER_SECONDS, seconds_to_next_tick,
+)
 
-INTERVAL_SECONDS = 900      # 15 min -> 4 req/hr
-TRUNCATED_AT = 1000
-THROTTLE_PAUSE_SECONDS = 60 * 60    # 429 -> wait for 60 min
-IDLE_POLL_SECONDS = 60
-RECONNECT_PAUSE_SECONDS = 5
 
-def _backoff_seconds(attempt: int) -> float:
-    return min(30.0 * (2 ** attempt), 600.0)    # 30 seconds -> 10 minute cap
+def harvest_tick(store: PostgresStore, worker_id: str, outbox: Outbox,
+                 lease: int = HARVEST_LEASE) -> list:
+    """The hourly Neon session: flush last hour's buffered ops, then claim up to `lease`
+    queries for the coming hour. Caller owns store's connection lifecycle. Postgres-only --
+    the crawl_queries coordinator is Neon (SKIP LOCKED / unnest)."""
+    stats = flush_harvest(outbox, store, store.conn)
+    if any(stats.values()):
+        print(f"[{worker_id}] flushed {stats}")
+    return coordinator.claim_batch(store.conn, worker_id, lease)
 
-def worker_loop(connect: Callable[[], psycopg.Connection], worker_id: str, *,
-                max_requests: int | None = None, interval: float = INTERVAL_SECONDS) -> None:
-    conn = connect()
+
+def process_query(adapter, query: str, canonical: str, depth: int, outbox: Outbox,
+                  truncated_at: int = TRUNCATED_AT) -> bool:
+    """Fetch one query offline and buffer its results. Returns False if rate-limited (caller
+    should stop fetching this period). On other failures the query is left leased (no finish
+    op) so its lease expiry reclaims it for a later retry."""
+    fetched_at = datetime.now(timezone.utc)
+    try:
+        raw = adapter.fetch_by_address(query)
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        if code == 429:
+            print(f"[harvest] 429 on {query!r}; backing off this period")
+            return False
+        if 500 <= code < 600:
+            print(f"[harvest] {code} on {query!r}; leaving leased for retry")
+            return True
+        outbox.add("finish", {"query": query, "status": "failed", "error": f"HTTP {code}"})
+        return True
+    except (httpx.TransportError, httpx.TimeoutException) as e:
+        print(f"[harvest] transient on {query!r}: {e}; leaving leased")
+        return True
+
+    incidents = [adapter.normalize(r, fetched_at) for r in raw]
+    outbox.add_many("incident", [i.model_dump(mode="json") for i in incidents])
+    if len(raw) >= truncated_at:
+        outbox.add("fanout", {"parent": query, "canonical": canonical, "depth": depth})
+        outbox.add("finish", {"query": query, "status": "truncated", "result_count": len(raw)})
+    else:
+        outbox.add("finish", {"query": query, "status": "done", "result_count": len(raw)})
+    print(f"[harvest] {query!r} depth={depth} -> {len(raw)} rows buffered")
+    return True
+
+
+def _outbox_path(worker_id: str) -> str:
+    return str(DATA_DIR / f"outbox_harvest_{worker_id}.db")
+
+
+def run_harvest(worker_id: str, outbox_path: str | None = None, *, lease: int = HARVEST_LEASE,
+                interval: float = HARVEST_INTERVAL_SECONDS, period: int = SYNC_PERIOD_SECONDS,
+                jitter: int = SYNC_JITTER_SECONDS, max_ticks: int | None = None) -> None:
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise SystemExit("DATABASE_URL must be set for the crawl harvest worker")
+    outbox = Outbox(outbox_path or _outbox_path(worker_id))
     adapter = LeeCountyAdapter()
-    store = build_store()
-    transient_attempts = 0
-    completed = 0
-
+    ticks = 0
     while True:
-        try:
-            claimed = coordinator.claim_next(conn, worker_id)
-            if claimed is None:
-                time.sleep(IDLE_POLL_SECONDS)
-                continue
-            query, canonical, depth = claimed
-            started = time.monotonic()
-
+        try:                                   # the whole tick is one Neon session
+            store = PostgresStore(db_url)
             try:
-                raw = adapter.fetch_by_address(query)
-            except httpx.HTTPStatusError as e:
-                status = e.response.status_code
-                if status == 429:
-                    coordinator.requeue(conn, query)
-                    print(f"[{worker_id}] 429 throttled on {query!r}; pausing 90m")
-                    time.sleep(THROTTLE_PAUSE_SECONDS)
-                    continue
-                if 500 <= status < 600:
-                    coordinator.requeue(conn, query)
-                    time.sleep(_backoff_seconds(transient_attempts))
-                    transient_attempts += 1
-                    continue
-                coordinator.finish(conn, query, "failed", error=f"HTTP {status}")
-                continue
-            except (httpx.TransportError, httpx.TimeoutException) as e:
-                coordinator.requeue(conn, query)
-                print(f"[{worker_id}] transient on {query!r}: {e}")
-                time.sleep(_backoff_seconds(transient_attempts))
-                transient_attempts += 1
-                continue
-            transient_attempts = 0
-
-            fetched_at = datetime.now(timezone.utc)
-            incidents = [adapter.normalize(r, fetched_at) for r in raw]
-            counts = store.upsert(incidents)
-
-            if len(raw) >= TRUNCATED_AT:
-                coordinator.fan_out(conn, query, canonical, depth)
-                coordinator.finish(conn, query, "truncated", result_count=len(raw))
-            else:
-                coordinator.finish(conn, query, "done", result_count=len(raw))
-            print(f"[{worker_id}] {query!r} depth={depth} -> {len(raw)} rows {counts}")
-            completed += 1
-
-            if max_requests is not None and completed >= max_requests:
-                print(f"[{worker_id}] hit max_requests={max_requests}, stopping")
-                return
-
-            elapsed = time.monotonic() - started
-            time.sleep(max(0.0, interval - elapsed) + random.uniform(0, 60))
+                claimed = harvest_tick(store, worker_id, outbox, lease)
+            finally:
+                store.close()
         except CONNECTION_ERRORS as e:
-            print(f"[{worker_id}] DB connection lost ({e}); reconnecting...")
-            time.sleep(RECONNECT_PAUSE_SECONDS)
-            conn = connect()
-            store = build_store()
+            print(f"[{worker_id}] sync failed ({e}); outbox kept, retrying next tick")
+            claimed = []
+
+        print(f"[{worker_id}] leased {len(claimed)} queries")
+        for i, (query, canonical, depth) in enumerate(claimed):
+            if i:
+                time.sleep(interval)           # space fetches to respect the per-IP cap
+            if not process_query(adapter, query, canonical, depth, outbox):
+                break                          # throttled -> stop this period
+
+        ticks += 1
+        if max_ticks is not None and ticks >= max_ticks:
+            return
+        time.sleep(seconds_to_next_tick(time.time(), period, jitter))

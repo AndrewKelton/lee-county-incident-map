@@ -207,3 +207,6 @@ class SqliteStore(IncidentStore):
                 "WHERE source=? AND source_incident_id=?",
                 [(n, s, sid) for (s, sid), n in tally.items()],
             )
+
+    def close(self) -> None:
+        self.conn.close()

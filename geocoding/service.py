@@ -20,14 +20,26 @@ class GeocodingService:
         return result, False
 
     def geocode_batch(self, items: list[tuple[str, str]], max_workers: int = 10):
-        """Batch counterpart of geocode(). Returns [(result, from_cache), ...] aligned to
-        `items`. Cache reads/writes are single round trips; external geocoder calls keep the
-        same per-geocoder throttle as geocode(). Misses are deduped by cache key, so the same
-        address appearing twice in a batch is geocoded once."""
+        """Online batch: cache get/set hit the (Neon) cache in single round trips. Returns
+        [(result, from_cache), ...] aligned to `items`. External geocoder calls keep the same
+        per-geocoder throttle as geocode(); misses are deduped by cache key."""
         keys = [self._key(addr, city) for addr, city in items]
         cached = self.cache.get_many(list(set(keys)))
+        outcomes, fresh = self._resolve(items, keys, cached, max_workers)
+        if fresh:
+            self.cache.set_many(fresh)
+        return outcomes
 
-        # Unique cache misses -> one external geocode each.
+    def geocode_batch_offline(self, items: list[tuple[str, str]], cached: dict, max_workers: int = 10):
+        """Offline batch (worker sync): touches no DB. `cached` is a snapshot prefetched at
+        lease time. Returns (outcomes, fresh) so the caller can buffer `fresh` cache entries
+        to flush at the next sync."""
+        keys = [self._key(addr, city) for addr, city in items]
+        return self._resolve(items, keys, cached, max_workers)
+
+    def _resolve(self, items, keys, cached, max_workers):
+        """Geocode the cache misses (one external call per unique key) and assemble outcomes
+        aligned to `items`. Pure compute + external HTTP; no cache I/O."""
         misses: dict[str, tuple[str, str]] = {}
         for key, (addr, city) in zip(keys, items):
             if key not in cached:
@@ -47,18 +59,16 @@ class GeocodingService:
                         result = None
                     if result:
                         fresh[key] = result
-            if fresh:
-                self.cache.set_many(fresh)
 
-        out = []
+        outcomes = []
         for key in keys:
             if key in cached:
-                out.append((cached[key], True))
+                outcomes.append((cached[key], True))
             elif key in fresh:
-                out.append((fresh[key], False))
+                outcomes.append((fresh[key], False))
             else:
-                out.append((None, False))
-        return out
+                outcomes.append((None, False))
+        return outcomes, fresh
 
     @staticmethod
     def _key(address: str, city: str) -> str:

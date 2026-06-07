@@ -62,3 +62,6 @@ class SqliteCache(GeocodeCache):
                 [(k, lat, lon, q) for k, (lat, lon, q) in entries.items()],
             )
             self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()

@@ -19,3 +19,7 @@ class GeocodeCache(ABC):
     @abstractmethod
     def set_many(self, entries: dict[str, tuple[float, float, str]]) -> None:
         """Upsert many cache entries (key -> (lat, lon, quality)) in one round trip."""
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release the underlying database connection."""

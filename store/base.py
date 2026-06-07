@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from models import NormalizedIncident
 
 MAX_GEOCODE_ATTEMPTS = 3
-GEOCODE_LEASE_MINUTES = 15
+GEOCODE_LEASE_MINUTES = 120  # must outlive the hour a worker holds rows un-flushed (sync model)
 
 class IncidentStore(ABC):
     @abstractmethod
@@ -32,3 +32,7 @@ class IncidentStore(ABC):
         """Bulk version of mark_geocode_attempt. rows: (source, sid, n_attempts); counts are
         summed per (source, sid) so a worker batching several tries of one address over an
         hour bumps geocode_attempts by the true total, not 1."""
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release the underlying database connection."""
