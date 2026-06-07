@@ -57,7 +57,7 @@ class SqliteStore(IncidentStore):
         with self.conn:
             for incident in incidents:
                 existing = self.conn.execute(
-                    "SELECT lat, status, disposition FROM incidents "
+                    "SELECT lat, status, disposition, last_changed FROM incidents "
                     "WHERE source = ? AND source_incident_id = ?",
                     (incident.source, incident.source_incident_id),
                 ).fetchone()
@@ -67,7 +67,7 @@ class SqliteStore(IncidentStore):
                     inserted += 1
                     continue
 
-                existing_lat, existing_status, existing_disposition = existing
+                existing_lat, existing_status, existing_disposition, existing_last_changed = existing
                 sets, params = [], []
 
                 if existing_lat is None and incident.lat is not None:
@@ -78,14 +78,23 @@ class SqliteStore(IncidentStore):
                         incident.geocode_quality,
                     ]
 
+                # Recency guard: only accept status/disposition from data newer than the
+                # last accepted change (mirrors the Postgres upsert); geocode fill is exempt.
+                fresh = existing_last_changed is None
+                if not fresh:
+                    prev = datetime.fromisoformat(existing_last_changed)
+                    if prev.tzinfo is None:
+                        prev = prev.replace(tzinfo=timezone.utc)
+                    fresh = incident.fetched_at > prev
+
                 content_changed = False
 
-                if incident.status is not None and incident.status != existing_status:
+                if fresh and incident.status is not None and incident.status != existing_status:
                     sets += ["status = ?"]
                     params += [incident.status]
                     content_changed = True
 
-                if incident.disposition is not None and incident.disposition != existing_disposition:
+                if fresh and incident.disposition is not None and incident.disposition != existing_disposition:
                     sets += ["disposition = ?"]
                     params += [incident.disposition]
                     content_changed = True

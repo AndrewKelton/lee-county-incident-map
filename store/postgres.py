@@ -3,11 +3,18 @@ from psycopg.types.json import Jsonb
 from models import NormalizedIncident
 from store.base import IncidentStore, MAX_GEOCODE_ATTEMPTS, GEOCODE_LEASE_MINUTES
 
-UPSERT_SQL = """
+_ACCEPT_CHANGE = """(
+        EXCLUDED.fetched_at > incidents.last_changed
+    AND (incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
+      OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition))
+    )"""
+
+# {{values}} survives this f-string (escaped) for the per-call .format(values=...).
+UPSERT_SQL = f"""
     INSERT INTO incidents
         (source, source_incident_id, occurred_at, fetched_at, last_changed, lat, lon,
          nature, disposition, address, city, geocoded_at, geocode_quality, status, raw)
-    VALUES {values}
+    VALUES {{values}}
     ON CONFLICT (source, source_incident_id) DO UPDATE SET
         lat = COALESCE(incidents.lat, EXCLUDED.lat),
         lon = COALESCE(incidents.lon, EXCLUDED.lon),
@@ -15,19 +22,14 @@ UPSERT_SQL = """
                            THEN EXCLUDED.geocoded_at ELSE incidents.geocoded_at END,
         geocode_quality = CASE WHEN incidents.lat IS NULL
                                THEN EXCLUDED.geocode_quality ELSE incidents.geocode_quality END,
-        status = COALESCE(EXCLUDED.status, incidents.status),
-        disposition = COALESCE(EXCLUDED.disposition, incidents.disposition),
-        last_changed = CASE
-            WHEN incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
-              OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
-            THEN EXCLUDED.last_changed ELSE incidents.last_changed END,
-        raw = CASE
-            WHEN incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
-              OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
-            THEN EXCLUDED.raw ELSE incidents.raw END
+        status      = CASE WHEN {_ACCEPT_CHANGE}
+                           THEN COALESCE(EXCLUDED.status, incidents.status) ELSE incidents.status END,
+        disposition = CASE WHEN {_ACCEPT_CHANGE}
+                           THEN COALESCE(EXCLUDED.disposition, incidents.disposition) ELSE incidents.disposition END,
+        last_changed = CASE WHEN {_ACCEPT_CHANGE} THEN EXCLUDED.last_changed ELSE incidents.last_changed END,
+        raw          = CASE WHEN {_ACCEPT_CHANGE} THEN EXCLUDED.raw ELSE incidents.raw END
     WHERE (incidents.lat IS NULL AND EXCLUDED.lat IS NOT NULL)
-       OR incidents.status      IS DISTINCT FROM COALESCE(EXCLUDED.status, incidents.status)
-       OR incidents.disposition IS DISTINCT FROM COALESCE(EXCLUDED.disposition, incidents.disposition)
+       OR {_ACCEPT_CHANGE}
     RETURNING (xmax = 0) AS inserted
 """
 
@@ -159,10 +161,8 @@ class PostgresStore(IncidentStore):
     def mark_geocoded_batch(self, rows: list[tuple[str, str, float, float, str]]) -> None:
         if not rows:
             return
-        # last-wins dedupe by key (a single pass has none; defensive for batched senders).
         by_key = {(s, sid): (s, sid, lat, lon, q) for (s, sid, lat, lon, q) in rows}
         sources, sids, lats, lons, quals = (list(c) for c in zip(*by_key.values()))
-        # unnest(arrays) -> one statement, fixed 5 params regardless of batch size.
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE incidents AS i "
