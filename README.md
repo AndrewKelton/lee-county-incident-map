@@ -1,223 +1,110 @@
 # Lee County Sheriff Activity — Data Pipeline
 
-A resilient, cloud-deployed ingestion pipeline that collects, normalizes, geocodes, and archives public Computer-Aided Dispatch (CAD) data from the Lee County (FL) Sheriff's Office. It is the data-collection backend for an interactive map that visualizes public-safety incidents geographically and over time.
-
-This repository is the **ingestion layer** of a larger UCF Senior Design project. It runs autonomously in the cloud, accumulating a clean, geocoded, queryable history of sheriff incidents and traffic crashes that downstream components (an interactive map, heatmaps, DBSCAN clustering, and trend analysis) build on top of.
-
----
+The data-collection backend for an interactive map of public-safety activity in Lee County, FL. It continuously collects, normalizes, geocodes, and archives public Computer-Aided Dispatch (CAD) records from the Lee County Sheriff's Office into a clean, queryable history. This is the ingestion layer of a UCF Senior Design project; the map, heatmaps, and clustering build on top of it.
 
 ## What it does
 
-The pipeline separates **harvesting** (pulling raw records and storing them) from **geocoding** (resolving addresses to coordinates), so the slow, rate-limited geocoders never block data collection. Both stages are idempotent and resumable.
+Two stages, decoupled so the slow, rate-limited geocoders never block collection — both idempotent and resumable:
 
-**Harvest** — for each record:
+- **Harvest** — fetch CAD records, normalize each into one canonical schema, and upsert (dedup on `(source, source_incident_id)`; coordinates left null).
+- **Geocode** — a separate pass resolves the still-uncoordinated addresses through a three-tier fallback chain with a persistent cache, backfilling coordinates in place.
 
-1. **Fetch** public CAD records from a Lee County API.
-2. **Normalize** each record into a single canonical schema, regardless of the source's quirks.
-3. **Store** idempotently — new records inserted, existing ones deduplicated on `(source, source_incident_id)`, live `status` changes updated in place. Coordinates are left null at this stage.
+Data enters two ways, both writing to the same `incidents` table so live and historical records merge into one set:
 
-**Geocode** — a separate pass drains rows that still lack coordinates, resolving each address through a three-tier fallback strategy with a persistent cache, and backfilling the coordinates in place.
-
-There are two ways data enters the system:
-
-- **Live incremental feeds** (cloud, continuous) — two feeds on independent schedules:
-  - **Sheriff incidents** — the general CAD feed (disturbances, thefts, animal calls, etc.). The API returns only the most recent ~1,000 records (≈ two weeks of activity), so this runs every 12 hours.
-  - **Traffic crashes** — a separate feed that returns only the 5 most recent active calls, so it runs every 5 minutes to avoid missing records as they roll off.
-- **Bulk historical backfill** (the crawl, run by collaborators) — a coordinated crawler that reconstructs ~2.5 years of history the live API can't paginate to, by exploiting the API's substring address filter. See [Bulk historical extraction](#bulk-historical-extraction).
-
-Both paths write to the same `incidents` table under the same `source` (`lee_county`), so history and live data deduplicate into one record set, and a single geocoding pass serves everything.
-
----
+- **Live feeds** (cloud) — *sheriff incidents* (general CAD, every 12 h) and *traffic crashes* (only the 5 most-recent active calls, fetched every 5 min so none roll off unseen).
+- **Bulk crawl** (collaborators) — reconstructs ~2.5 years of history the live API can't paginate to, by exploiting its substring address filter. See [Bulk historical extraction](#bulk-historical-extraction).
 
 ## Architecture
 
 ![Architecture](docs/architecture.svg)
 
-The design is an **engine** (a small reusable library) with **two apps** built on top of it (the live pipeline and the bulk crawl). The engine is built around swappable abstractions, so adding a data source, changing a geocoder, or switching storage backends never requires touching unrelated code.
+A small reusable **engine** with **two apps** on top. Everything is built around swappable interfaces, so adding a source, geocoder, or storage backend never touches unrelated code.
 
-### Adapters (`adapters/`)
+- **Adapters** (`adapters/`) — one file per source implementing `fetch_raw()` + `normalize()`. Adding a county is a new file plus a registry line.
+- **Canonical model** (`models.py`) — every adapter emits a `NormalizedIncident`; the full original payload is kept in `raw`.
+- **Geocoding** (`geocoding/`) — three geocoders chained behind one interface, first hit wins:
+  1. **Census** — fast, parallel; standard street addresses (`535 PINE ISLAND RD`).
+  2. **Overpass / OpenStreetMap** — resolves *intersections* (`CLAYTON AVE / LEELAND HEIGHTS BLVD E`) by finding the OSM node the two named roads share; rotates three endpoints with per-endpoint cooldowns.
+  3. **Nominatim** — fuzzy last resort.
 
-Each data source is a self-contained adapter implementing a common `IncidentSource` interface: `fetch_raw()` (hit the API, return raw records) and `normalize(raw, fetched_at)` (map one raw record to the canonical model). The only code that knows anything source-specific lives in its adapter. Adding a new source — a new county, should one ever publish a public API — is a single new file plus one line in the registry.
+  A persistent **cache** keyed on the normalized address means each location is geocoded once, ever.
+- **Storage** (`store/`) — one `IncidentStore` interface, `SqliteStore` (local) and `PostgresStore` (Neon). The upsert dedups the batch, **skips no-op writes**, and applies a **recency guard** so a delayed or replayed batch can't overwrite a newer status — newest data wins, not last writer.
 
-### Canonical model (`models.py`)
+### Batched writes — keeping Neon asleep
 
-Every adapter emits a `NormalizedIncident` (a Pydantic model). Downstream code only ever sees this one type, never a source's raw shape. The full original payload is preserved in a `raw` field so no information is lost and new fields can be backfilled later.
+Neon (serverless Postgres) scales to zero when idle, so the system is designed to **touch it only about once an hour**. Every producer buffers its writes in a durable store and flushes on a schedule, instead of writing on every fetch:
 
-### Geocoding (`geocoding/`)
+- **Live feeds** — the fetch Lambdas write nothing to Neon; they stash each fetch's normalized records as JSON in an **S3 buffer**. A separate **flush Lambda** runs hourly, drains S3, and upserts in one batch.
+- **Crawl + geocode workers** — each accumulates results in a **local SQLite outbox** and opens one Neon session per hour to flush the outbox *and* lease the next hour's work; the rest of the hour it runs fully offline (Lee County API + geocoders only).
 
-Addresses arrive as free text and must be resolved to coordinates. No single free geocoder handles every case, so the pipeline chains three behind a common interface, trying each in order until one succeeds:
-
-1. **Census Geocoder** — fast and parallel, handles standard street addresses (`535 PINE ISLAND RD`).
-2. **Overpass / OpenStreetMap** — resolves *intersections* (`CLAYTON AVE / LEELAND HEIGHTS BLVD E`) by finding the two named roads in OSM and returning the node they physically share. Census cannot do this. Overpass requests rotate across three public endpoints with per-endpoint cooldowns to stay within rate limits.
-3. **Nominatim** — a fuzzy last-resort fallback for unusual addresses the first two miss.
-
-A persistent **cache** (keyed on the normalized address) ensures each unique location is geocoded only once, ever. Rate-limited geocoders (Overpass, Nominatim) are throttled to respect their public usage policies. Results are tagged with which geocoder resolved them, so coordinate provenance is queryable.
-
-### Engine wiring (`ingest.py`)
-
-`ingest.py` holds the glue both apps share:
-
-- `build_store()` / `build_geocoding()` — select the storage and cache backend from the `DATABASE_URL` environment variable (unset → SQLite, set → Postgres), so nothing else in the codebase changes between local and cloud.
-- `geocode_pending(store, geocoding, worker_id, limit)` — the single geocoding pass: claim a batch of un-geocoded rows, resolve them in parallel (Census parallelizes; Overpass/Nominatim self-throttle), and write coordinates back. A miss bumps a per-row attempt counter; after 3 misses the row is left as permanently un-geocodable so it isn't retried forever. Used by the live geocode Lambda, the crawl's `geocode` command, and the local backfill script alike.
-
-### Live pipeline (`pipeline/`)
-
-`pipeline/runner.py`'s `run_source(name)` is the **harvest** path for the live feeds — resolve the adapter, fetch, normalize, upsert (no geocoding). `pipeline/lambda_handler.py` is the cloud entry point; it dispatches on the event payload, running a harvest for `{"source": ...}` or a geocode pass for `{"action": "geocode"}`.
-
-### Bulk crawl (`crawl/` + `crawl_runner.py`)
-
-The coordinated historical backfill — see [Bulk historical extraction](#bulk-historical-extraction).
-
-### Storage (`store/`)
-
-A common `IncidentStore` interface with two implementations:
-
-- **`SqliteStore`** — zero-setup local development; the database is a single file under `data/`.
-- **`PostgresStore`** — production storage on Neon, with `ON CONFLICT` upserts for efficient batch writes.
-
-Upserts are idempotent and dedup on `(source, source_incident_id)`. They backfill coordinates only when a stored record previously lacked them, and update a record's live `status` when it changes. The store also exposes the geocode-pass primitives: `claim_ungeocoded` (lease a batch), `mark_geocoded`, and `mark_geocode_attempt`.
-
----
+Because every write is an idempotent upsert on a stable key, a crash or a duplicated/late flush is harmless — it re-applies near-no-ops, and the recency guard blocks any stale overwrite. (`sync/` holds the workers' outbox + flush; `pipeline/s3_buffer.py` + `pipeline/flush.py` are the S3 equivalent.)
 
 ## Project structure
 
 ```
-.
-├── adapters/                   # engine: data sources
-│   ├── base.py                 # IncidentSource interface + shared HTTP helpers
-│   ├── lee_county.py           # Sheriff incidents adapter (+ fetch_by_address for the crawl)
-│   └── lee_county_traffic.py   # Traffic crashes adapter
-├── geocoding/                  # engine: geocoders + cache
-│   ├── base.py                 # Geocoder + GeocodeCache interfaces
-│   ├── census.py               # Census Geocoder (standard addresses)
-│   ├── overpass.py             # OpenStreetMap intersection geocoder (3-endpoint rotation)
-│   ├── nominatim.py            # Fuzzy fallback geocoder
-│   ├── composite.py            # Chains geocoders; first hit wins
-│   ├── postgres_cache.py       # PostgresCache
-│   ├── sqlite_cache.py         # SqliteCache
-│   └── service.py              # Cache-then-geocode service
-├── store/                      # engine: persistence
-│   ├── base.py                 # IncidentStore interface
-│   ├── sqlite.py               # Local file-based storage
-│   └── postgres.py             # Neon / production storage
-├── pipeline/                   # APP 1 — live incremental feeds
-│   ├── runner.py               # run_source(): harvest one feed
-│   └── lambda_handler.py       # AWS Lambda entry (harvest | geocode dispatch)
-├── crawl/                      # APP 2 — bulk historical extraction
-│   ├── coordinator.py          # crawl_queries schema + claim / fan-out / finish
-│   └── worker.py               # harvest worker loop (claim → fetch → fan out, self-paced)
-├── crawl_runner.py             # crawl entry point (init | work | geocode | test)
-├── scripts/
-│   ├── backfill_geocode.py     # One-shot geocode pass over un-geocoded rows
-│   ├── migrate_to_postgres.py  # One-time SQLite → Neon migration
-│   └── smoke.py                # Initial end-to-end sanity check
-├── tests/
-│   ├── test_lee_county.py      # Adapter normalization tests
-│   └── fixtures/
-│       └── lee_county_sample.json
-├── data/                       # Local SQLite DBs (git-ignored)
-├── ingest.py                   # engine wiring: build_store/build_geocoding/geocode_pending
-├── models.py                   # NormalizedIncident canonical schema
-├── paths.py                    # CWD-independent path anchoring
-├── street_queries.txt          # crawl seed: ~13k Lee County street names (git-ignored)
-├── pyproject.toml              # Source of truth for dependencies
-├── uv.lock
-└── README.md
+adapters/        data sources (IncidentSource: fetch_raw + normalize)
+geocoding/       three-tier geocoder chain + persistent cache
+store/           IncidentStore: SqliteStore (local) / PostgresStore (Neon)
+sync/            worker outbox + hourly flush/lease (outbox · flush · schedule · geocode_worker)
+pipeline/        live feeds: fetch → S3 (fetch_handler), hourly S3 → Neon (flush_handler)
+crawl/           bulk crawl: crawl_queries coordinator + harvest worker
+scripts/         one-off tools (backfill_geocode, migrate_to_postgres, smoke)
+ingest.py        engine wiring (build_store / build_geocoding / geocode_pending)
+models.py        NormalizedIncident canonical schema
+crawl_runner.py  crawl CLI (init | work | geocode | test)
 ```
 
----
-
-## Data model
-
-Each record is stored with the following fields:
-
-| Field | Description |
-|---|---|
-| `source` | Which feed it came from (e.g. `lee_county`, `lee_county_traffic`) |
-| `source_incident_id` | The source's own incident/call identifier |
-| `occurred_at` | When the incident happened (stored in UTC) |
-| `fetched_at` | When the pipeline retrieved it (UTC) |
-| `lat`, `lon` | Coordinates (null if unresolved) |
-| `nature` | Call type, e.g. `CRASH`, `DISTURBANCE`, `SHOTS FIRED` |
-| `disposition` | Outcome, where provided |
-| `address`, `city` | Reported location |
-| `geocoded_at` | When coordinates were derived (null = coords came from the source) |
-| `geocode_quality` | Which geocoder resolved it and its confidence |
-| `geocode_attempts` | Failed geocode passes; the geocoder stops retrying a row after 3 |
-| `geocode_locked_by` | Worker that holds (or last held) the row's geocode lease — doubles as resolver attribution |
-| `geocode_locked_at` | When the lease was taken; leases older than 15 min are reclaimable |
-| `status` | Live dispatch status, e.g. `ASSIGNED`, `ARRIVED` (traffic feed) |
-| `raw` | The complete original payload |
-
-`(source, source_incident_id)` is the primary key. Indexes support time-range and geographic queries.
-
----
+Local SQLite DBs and the ~13k-street crawl seed live under `data/` and `street_queries.txt` (git-ignored).
 
 ## Running locally
 
-Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+.
+Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+. With `DATABASE_URL` unset everything uses a local SQLite DB under `data/`; set it to a Postgres connection string to use Neon instead.
 
 ```bash
-# Install dependencies
 uv sync
 
-# Harvest a single live feed (writes to a local SQLite DB under data/ when DATABASE_URL is unset)
+# Harvest one feed (fetch + normalize + upsert)
 uv run python -m pipeline.runner lee_county
 uv run python -m pipeline.runner lee_county_traffic
 
-# Run against Postgres instead — just set the connection string
-DATABASE_URL="postgresql://..." uv run python -m pipeline.runner lee_county
-
-# Geocode whatever is still missing coordinates
+# Geocode whatever still lacks coordinates
 uv run python scripts/backfill_geocode.py 150
 
-# Run the tests
 uv run pytest
 ```
 
----
-
 ## Bulk historical extraction
 
-The live API only exposes the most recent ~1,000 records with no pagination, so deep history is unreachable through normal querying. The crawl recovers it by exploiting the API's one filter — `address`, a literal **substring** match.
+The live API exposes only the ~1,000 most-recent records with no pagination, so deep history is unreachable normally. The crawl recovers it via the API's one filter — `address`, a literal **substring** match.
 
-**The strategy.** US addresses follow `<house number> <street> <suffix>`. Because the match is a literal substring, `address=0 PALM BEACH BLVD` matches only incidents whose house number ends in `0` (the space is literal). The ten queries `0 PALM BEACH BLVD` … `9 PALM BEACH BLVD` form a disjoint partition of every numbered address on that street, and the split is recursive: if a query still returns the 1,000-record cap, it fans out into ten more-specific children (`00 …`, `10 …`, … `90 …`). Seeding from ~13,000 Lee County street names and recursing only where needed reconstructs the full history.
+**Strategy.** US addresses are `<house#> <street> <suffix>`. Since the match is a substring, `address=0 PALM BEACH BLVD` matches only house numbers ending in `0` (the space is literal). The ten queries `0 …` – `9 PALM BEACH BLVD` disjointly partition the street, and the split recurses: a query that still hits the 1,000-record cap fans out into ten children (`00 …`, `10 …`, …). Seeded from ~13,000 street names and recursing only where needed, this reconstructs the full history.
 
-**Coordination.** A `crawl_queries` table on Neon is the shared work queue. Workers — collaborators each running on their own home connection, each respecting the published per-IP rate limit — atomically claim a pending query (`FOR UPDATE SKIP LOCKED`), fetch it, write any results, and on a truncated (1,000-record) result fan out ten children back into the queue. The claim is **self-healing**: it also picks up queries left `in_progress` by a worker that crashed, so no separate reaper is needed. Harvesting only writes raw records; geocoding is a separate `geocode` pass that drains un-geocoded rows, coordinated across workers by a 15-minute **row lease** (`geocode_locked_by` / `geocode_locked_at`) so collaborators don't redo each other's work.
+**Coordination.** A `crawl_queries` table on Neon is the shared work queue. Each collaborator runs a worker on their own IP that, once an hour, opens a single Neon session to flush the prior hour's results (from its local outbox) and claim a batch of queries (`FOR UPDATE SKIP LOCKED`) — then spends the hour fetching (paced to the per-IP limit) and geocoding offline. A truncated (1,000-record) result fans out ten children; the claim is **self-healing** — it reclaims queries an absent worker left in-progress once their lease expires, so no separate reaper is needed.
 
-**Rate discipline.** The binding limit is ~50 requests per IP per 12 hours, so each worker self-paces to one request every ~15 minutes (≈4/hour, ≈48 per 12h). Throughput scales by adding collaborators, not by going faster; a full crawl is a multi-week effort.
+**Rate discipline.** The binding limit is ~50 requests/IP/12 h, so a worker fetches ~4/hour (one per ~15 min). Throughput scales by adding collaborators, not by going faster; a full crawl is a multi-week effort.
 
-**Running it** (set `DATABASE_URL` to the shared Neon connection string):
+**Running it** (`DATABASE_URL` = the shared Neon string):
 
 ```bash
 # Once, by whoever seeds the queue (needs street_queries.txt locally):
-uv run python crawl_runner.py init             # creates schema + seeds the full street list
-uv run python crawl_runner.py init my_seed.txt # ...or seed a custom subset
+uv run python crawl_runner.py init                 # creates schema + seeds the full street list
 
-# Each collaborator, on their own machine/IP:
-uv run python crawl_runner.py work  <worker_id>    # harvest: claim → fetch → fan out, self-paced
-uv run python crawl_runner.py geocode <worker_id>  # geocode: drain un-geocoded rows, then exit
+# Each collaborator, on their own machine/IP — both sync to Neon hourly:
+uv run python crawl_runner.py work    <worker_id>  # harvest
+uv run python crawl_runner.py geocode <worker_id>  # geocode
 
-# Quick validation against a small seed before committing to a full run:
-uv run python crawl_runner.py test  <worker_id>    # capped, faster-paced harvest
+uv run python crawl_runner.py test    <worker_id>  # quick 2-tick smoke against the real API
 ```
-
-The same `geocode_pending` runs in the cloud as a Lambda action, so live and historical data share one geocoding path and one cache.
-
----
 
 ## Deployment
 
-The live pipeline runs serverlessly:
+The live pipeline is serverless on AWS; a Neon (serverless Postgres) database holds `incidents`, `geocode_cache`, and `crawl_queries`.
 
-- **Compute** — a single AWS Lambda function (`pipeline.lambda_handler.handler`) that dispatches on its event payload. The same function serves every feed and the geocode pass.
-- **Scheduling** — three Amazon EventBridge schedules:
-  - `{"source": "lee_county"}` every 12 hours (harvest sheriff incidents)
-  - `{"source": "lee_county_traffic"}` every 5 minutes (harvest traffic crashes)
-  - `{"action": "geocode", "limit": 100}` every few minutes (resolve a bounded batch of un-geocoded rows)
-- **Storage** — a Neon (serverless Postgres) database holds the `incidents`, `geocode_cache`, and `crawl_queries` tables. The Lambda connects via Neon's pooled connection string, set as the `DATABASE_URL` environment variable.
+- **Fetch Lambdas** (`pipeline.lambda_handler.fetch_handler`) — two functions, one per feed, triggered by EventBridge (`{"source": "lee_county_traffic"}` every 5 min; `{"source": "lee_county"}` every 12 h). They fetch, normalize, and write to S3 — no Neon.
+- **Flush Lambda** (`pipeline.lambda_handler.flush_handler`) — EventBridge hourly; drains the S3 buffer into Neon in one upsert.
+- **Env / IAM** — `S3_BUFFER_BUCKET` on all three; `DATABASE_URL` on the flush function. Fetch needs `s3:PutObject`; flush needs `s3:ListBucket` / `GetObject` / `DeleteObject` plus Neon. (`boto3` is provided by the Lambda runtime.)
 
-Deployment artifact is a `.zip` built with Linux-targeted wheels so the compiled dependencies (`psycopg`, `pydantic-core`) run on Lambda's runtime:
+Build the deployment zip with Linux-targeted wheels so `psycopg` / `pydantic-core` match Lambda's runtime:
 
 ```bash
 uv pip install --python-platform x86_64-manylinux2014 --python-version 3.12 \
@@ -227,22 +114,34 @@ cp models.py paths.py ingest.py config.py build/package/
 cd build/package && zip -rq ../lambda.zip . && cd ../..
 ```
 
----
+## Data model
 
-## Data sources & design principles
+`incidents`, keyed on `(source, source_incident_id)`:
 
-All data is sourced exclusively from **official public APIs**. The Lee County Sheriff's Office publishes a public incidents API and a public active-traffic-calls endpoint; this pipeline consumes only those. No scraping of non-API sources is performed — a deliberate constraint that keeps the project on firm ethical and legal footing and reflects the broader goal of encouraging agencies to publish open data. The bulk crawl uses the same public incidents API and self-rate-limits below the published per-IP caps.
+| Field | Notes |
+|---|---|
+| `source`, `source_incident_id` | Feed + the source's own ID (primary key) |
+| `occurred_at` | When the incident happened (UTC) |
+| `fetched_at` | When first fetched (UTC); frozen on later updates ≈ first-seen |
+| `last_changed` | When `status` / `disposition` last changed (UTC); drives the recency guard |
+| `lat`, `lon` | Coordinates (null until geocoded) |
+| `nature`, `disposition` | Call type / outcome |
+| `address`, `city` | Reported location |
+| `status` | Live dispatch status, e.g. `ASSIGNED`, `ARRIVED` (traffic feed) |
+| `geocoded_at`, `geocode_quality` | When, and by which geocoder, coordinates were derived |
+| `geocode_attempts`, `geocode_locked_by`, `geocode_locked_at` | Retry counter (stops after 3) + per-row geocode lease (reclaimable after 2 h) |
+| `raw` | The complete original payload |
 
-Lee County is currently the only Florida county with a suitable public API. The adapter architecture is built so that additional counties can be added trivially **if and when** they publish public endpoints — the limiting factor is data availability, not code.
+## Data sources & principles
 
-All incident data is public record under Florida's Sunshine Laws (Chapter 119, Florida Statutes).
+All data comes exclusively from **official public APIs** — the Sheriff's public incidents and active-traffic-calls endpoints. No scraping of non-API sources: a deliberate constraint that keeps the project on firm ethical and legal footing and reflects the broader goal of encouraging agencies to publish open data. The bulk crawl uses the same public API, self-rate-limited below the published caps. All of it is public record under Florida's Sunshine Laws (Chapter 119). Lee County is currently the only FL county with a suitable public API; the adapter architecture makes adding others trivial **if and when** they publish one.
 
 ## Known limitations
 
-- A small, roughly constant set of addresses (highway mile markers, corrupted CAD entries, named landmarks) cannot be resolved by any free geocoder and are stored without coordinates. This is an inherent ceiling of free geocoding, not a defect — geocoded coverage sits in the mid-90% range, which is more than sufficient for density-based visualization and clustering.
-- Records with a missing or ambiguous `city` whose street name also exists elsewhere in Florida (e.g. a `PALM BEACH BLVD` on both coasts) can geocode to the wrong location. These are filtered against the Lee County bounding box during downstream data cleaning rather than at ingest time.
-- The bulk crawl's digit-partition recovers numbered addresses; intersection and other non-numbered records on a truncated street that fall outside its most-recent 1,000 results are not recovered. Intersections are rare in the incident feed (they dominate the separate traffic feed), so this gap is minor for v1.
-- The crawl's ~250-request-per-2-day rate ceiling is an empirical estimate; it should be monitored for `429`s during the first sustained run.
+- A small, roughly constant set of addresses (highway mile markers, corrupted CAD entries, named landmarks) resolves with no free geocoder and is stored without coordinates — an inherent ceiling, not a defect; coverage sits in the mid-90% range.
+- Records with a missing or ambiguous `city` whose street name also exists elsewhere in Florida (e.g. a `PALM BEACH BLVD` on both coasts) can geocode to the wrong place; these are filtered against the Lee County bounding box during downstream cleaning.
+- The crawl's digit-partition recovers numbered addresses; intersections and other non-numbered records beyond a truncated street's most-recent 1,000 aren't recovered (intersections are rare in the incident feed — they dominate the separate traffic feed).
+- The ~50-request/IP/12 h ceiling is an empirical estimate — watch for `429`s during the first sustained run.
 
 ## Acknowledgments
 
