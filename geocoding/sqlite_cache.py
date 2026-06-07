@@ -38,3 +38,27 @@ class SqliteCache(GeocodeCache):
                 (key, lat, lon, quality),
             )
             self.conn.commit()
+
+    def get_many(self, keys: list[str]) -> dict[str, tuple[float, float, str]]:
+        if not keys:
+            return {}
+        keys = list(keys)
+        placeholders = ",".join("?" * len(keys))
+        with self._lock:
+            rows = self.conn.execute(
+                f"SELECT key, lat, lon, quality FROM geocode_cache WHERE key IN ({placeholders})",
+                keys,
+            ).fetchall()
+        return {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+    def set_many(self, entries: dict[str, tuple[float, float, str]]) -> None:
+        if not entries:
+            return
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO geocode_cache "
+                "(key, lat, lon, quality, cached_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'))",
+                [(k, lat, lon, q) for k, (lat, lon, q) in entries.items()],
+            )
+            self.conn.commit()

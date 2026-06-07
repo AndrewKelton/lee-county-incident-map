@@ -11,3 +11,11 @@ class GeocodeCache(ABC):
 
     @abstractmethod
     def set(self, key: str, lat: float, lon: float, quality: str) -> None: ...
+
+    @abstractmethod
+    def get_many(self, keys: list[str]) -> dict[str, tuple[float, float, str]]:
+        """Look up many keys in one round trip. Returns only the keys that hit."""
+
+    @abstractmethod
+    def set_many(self, entries: dict[str, tuple[float, float, str]]) -> None:
+        """Upsert many cache entries (key -> (lat, lon, quality)) in one round trip."""

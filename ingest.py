@@ -1,6 +1,5 @@
 import os
 import psycopg
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 
@@ -15,9 +14,6 @@ from geocoding.nominatim import NominatimGeocoder
 load_dotenv(PROJECT_ROOT / ".env")
 
 CONNECTION_ERRORS = (psycopg.OperationalError, psycopg.InterfaceError)
-
-GeocodeResult = tuple[float, float, str] | None     # (lat, lon, quality) or None
-PendingRow = tuple[str, str, str, str | None] # (source, source_incident_id, address, city)
 
 
 def build_store() -> IncidentStore:
@@ -48,25 +44,26 @@ def geocode_pending(store: IncidentStore, geocoding: GeocodingService, worker_id
     if not rows:
         return {"attempted": 0, "resolved": 0, "cached": 0, "fresh": 0}
 
-    def _try(row) -> tuple[PendingRow, GeocodeResult, bool]:
-        source_, sid_, address_, city_ = row
-        try:
-            result_, from_cache_ = geocoding.geocode(address_, city_ or "")
-            return row, result_, from_cache_
-        except Exception as e:
-            print(f"    geocode failed {sid_}: {e}")
-            return row, None, False
+    # One batched claim -> batched cache lookup + parallel external geocode -> batched writes.
+    # DB statements per pass: 1 claim + 1 cache get + <=1 cache set + <=1 mark_geocoded
+    # + <=1 mark_attempt
+    items = [(addr, city or "") for (_s, _sid, addr, city) in rows]
+    outcomes = geocoding.geocode_batch(items)
 
-    resolved = cached = 0
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        for fut in as_completed([pool.submit(_try, r) for r in rows]):
-            (source, sid, addr, city), result, from_cache = fut.result()
-            if result:
-                lat, lon, quality = result
-                store.mark_geocoded(source, sid, lat, lon, quality)
-                resolved += 1
-                cached += from_cache
-                print(f"    ✓ {source}/{sid} [{quality}]")
-            else:
-                store.mark_geocode_attempt(source, sid)
+    resolved_rows: list[tuple[str, str, float, float, str]] = []
+    attempt_rows: list[tuple[str, str, int]] = []
+    cached = 0
+    for (source, sid, _addr, _city), (result, from_cache) in zip(rows, outcomes):
+        if result:
+            lat, lon, quality = result
+            resolved_rows.append((source, sid, lat, lon, quality))
+            cached += from_cache
+            print(f"    ✓ {source}/{sid} [{quality}]")
+        else:
+            attempt_rows.append((source, sid, 1))
+
+    store.mark_geocoded_batch(resolved_rows)
+    store.mark_geocode_attempt_batch(attempt_rows)
+
+    resolved = len(resolved_rows)
     return {"attempted": len(rows), "resolved": resolved, "cached": cached, "fresh": resolved - cached}

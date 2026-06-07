@@ -34,3 +34,29 @@ class PostgresCache(GeocodeCache):
                 "quality=EXCLUDED.quality, cached_at=now()",
                 (key, lat, lon, quality),
             )
+
+    def get_many(self, keys):
+        if not keys:
+            return {}
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT key, lat, lon, quality FROM geocode_cache WHERE key = ANY(%s)",
+                (list(keys),),
+            ).fetchall()
+        return {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+    def set_many(self, entries):
+        if not entries:
+            return
+        keys, lats, lons, quals = [], [], [], []
+        for key, (lat, lon, quality) in entries.items():
+            keys.append(key); lats.append(lat); lons.append(lon); quals.append(quality)
+        # unnest(arrays) -> one statement, 4 params regardless of batch size.
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO geocode_cache (key, lat, lon, quality) "
+                "SELECT * FROM unnest(%s::text[], %s::float8[], %s::float8[], %s::text[]) "
+                "ON CONFLICT (key) DO UPDATE SET lat=EXCLUDED.lat, lon=EXCLUDED.lon, "
+                "quality=EXCLUDED.quality, cached_at=now()",
+                (keys, lats, lons, quals),
+            )

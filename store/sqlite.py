@@ -173,3 +173,28 @@ class SqliteStore(IncidentStore):
                 "WHERE source=? AND source_incident_id=?",
                 (source, sid),
             )
+
+    def mark_geocoded_batch(self, rows: list[tuple[str, str, float, float, str]]) -> None:
+        if not rows:
+            return
+        by_key = {(s, sid): (s, sid, lat, lon, q) for (s, sid, lat, lon, q) in rows}
+        now = datetime.now(timezone.utc).isoformat()
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE incidents SET lat=?, lon=?, geocoded_at=?, geocode_quality=? "
+                "WHERE source=? AND source_incident_id=?",
+                [(lat, lon, now, q, s, sid) for (s, sid, lat, lon, q) in by_key.values()],
+            )
+
+    def mark_geocode_attempt_batch(self, rows: list[tuple[str, str, int]]) -> None:
+        if not rows:
+            return
+        tally: dict[tuple[str, str], int] = {}
+        for s, sid, n in rows:
+            tally[(s, sid)] = tally.get((s, sid), 0) + n
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE incidents SET geocode_attempts = geocode_attempts + ?, geocode_locked_at = NULL "
+                "WHERE source=? AND source_incident_id=?",
+                [(n, s, sid) for (s, sid), n in tally.items()],
+            )

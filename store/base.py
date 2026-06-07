@@ -22,3 +22,13 @@ class IncidentStore(ABC):
     @abstractmethod
     def mark_geocode_attempt(self, source: str, sid: str) -> None:
         """Records a failed geocode attempt (so we eventually stop retrying)"""
+
+    @abstractmethod
+    def mark_geocoded_batch(self, rows: list[tuple[str, str, float, float, str]]) -> None:
+        """Bulk version of mark_geocoded. rows: (source, sid, lat, lon, quality)."""
+
+    @abstractmethod
+    def mark_geocode_attempt_batch(self, rows: list[tuple[str, str, int]]) -> None:
+        """Bulk version of mark_geocode_attempt. rows: (source, sid, n_attempts); counts are
+        summed per (source, sid) so a worker batching several tries of one address over an
+        hour bumps geocode_attempts by the true total, not 1."""

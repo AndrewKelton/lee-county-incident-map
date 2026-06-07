@@ -32,8 +32,6 @@ UPSERT_SQL = """
 """
 
 _COLUMNS = 15
-# A single statement is capped at 65535 bind params (65535/15 = 4369 rows). Chunk well
-# under that so any batch size -- including a backlogged worker's hourly dump -- is safe.
 _MAX_ROWS_PER_STATEMENT = 1000
 
 class PostgresStore(IncidentStore):
@@ -155,5 +153,42 @@ class PostgresStore(IncidentStore):
                 "UPDATE incidents SET geocode_attempts = geocode_attempts + 1 "
                 "WHERE source=%s AND source_incident_id=%s",
                 (source, sid),
+            )
+        self.conn.commit()
+
+    def mark_geocoded_batch(self, rows: list[tuple[str, str, float, float, str]]) -> None:
+        if not rows:
+            return
+        # last-wins dedupe by key (a single pass has none; defensive for batched senders).
+        by_key = {(s, sid): (s, sid, lat, lon, q) for (s, sid, lat, lon, q) in rows}
+        sources, sids, lats, lons, quals = (list(c) for c in zip(*by_key.values()))
+        # unnest(arrays) -> one statement, fixed 5 params regardless of batch size.
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE incidents AS i "
+                "SET lat = v.lat, lon = v.lon, geocoded_at = now(), geocode_quality = v.quality "
+                "FROM unnest(%s::text[], %s::text[], %s::float8[], %s::float8[], %s::text[]) "
+                "       AS v(source, sid, lat, lon, quality) "
+                "WHERE i.source = v.source AND i.source_incident_id = v.sid",
+                (sources, sids, lats, lons, quals),
+            )
+        self.conn.commit()
+
+    def mark_geocode_attempt_batch(self, rows: list[tuple[str, str, int]]) -> None:
+        if not rows:
+            return
+        tally: dict[tuple[str, str], int] = {}
+        for s, sid, n in rows:
+            tally[(s, sid)] = tally.get((s, sid), 0) + n
+        sources = [s for (s, _sid) in tally]
+        sids = [sid for (_s, sid) in tally]
+        counts = list(tally.values())
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE incidents AS i "
+                "SET geocode_attempts = i.geocode_attempts + v.n "
+                "FROM unnest(%s::text[], %s::text[], %s::int[]) AS v(source, sid, n) "
+                "WHERE i.source = v.source AND i.source_incident_id = v.sid",
+                (sources, sids, counts),
             )
         self.conn.commit()
