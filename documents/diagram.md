@@ -1,5 +1,23 @@
 ```mermaid
 flowchart TD
+    subgraph USER_PARAMS["⓪ User Parameters  (UI Controls)"]
+        EPS_FT["Search Radius
+        Input: feet  🇺🇸
+        ──────────────
+        e.g. 300 ft · 1 500 ft · 5 000 ft"]
+        MIN_C["Min Crimes
+        Minimum incidents to form a cluster
+        ──────────────
+        e.g. 3 · 5 · 10"]
+        CONV["Unit Conversion & Scaling
+        ε (fine)   = radius ft × 0.3048
+        ε (mid)    = radius ft × 0.3048 × 5
+        ε (broad)  = radius ft × 0.3048 × 10
+        min_samples scales with level"]
+        EPS_FT --> CONV
+        MIN_C --> CONV
+    end
+
     subgraph INGEST["① Data Ingestion"]
         DB[("`**incidents**
         PostgreSQL table`")]
@@ -33,18 +51,18 @@ flowchart TD
     subgraph DBSCAN_STAGE["③ DBSCAN  ─  3 Scale Levels  (scikit-learn)"]
         direction LR
         D1["Micro  Level 1
-        ε ≈ 100–200 m
-        min_samples ≈ 5
+        ε = user radius (fine)
+        min_samples = min crimes
         ──────────────
         street-corner clusters"]
         D2["Meso  Level 2
-        ε ≈ 500 m
-        min_samples ≈ 10
+        ε = user radius × 5 (mid)
+        min_samples = min crimes × 2
         ──────────────
         neighborhood clusters"]
         D3["Macro  Level 3
-        ε ≈ 1000–1500 m
-        min_samples ≈ 15
+        ε = user radius × 10 (broad)
+        min_samples = min crimes × 3
         ──────────────
         district-level clusters"]
         NOISE["Noise Points
@@ -113,6 +131,7 @@ flowchart TD
     end
 
     %% Flow connections
+    CONV --> D1 & D2 & D3
     PROJ --> D1 & D2 & D3
     PROJ --> GRID
     SEV --> WKDE
