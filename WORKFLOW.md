@@ -22,26 +22,15 @@ git pull origin dev
 
 ## 2. Create a Feature Branch
 
-Create a new branch for your work. Use the naming convention based on what you're working on:
+Create a new branch for your work. Use the naming convention based on the Jira ticket number for the feature you're working on:
 
-**Frontend developers:**
 ```bash
-git checkout -b front-end/<feature-name>
+git checkout -b LEE-<ticket-num>/<feature-name>
 ```
 
-**Backend developers:**
-```bash
-git checkout -b backend/<feature-name>
-```
+Replace `<ticket-num>` with the Jira ticket number and `<feature-name>` with a short, descriptive name for the feature (e.g., `LEE-42/user-authentication`, `LEE-7/database-optimization`, `LEE-15/map-clustering`).
 
-**ML developers:**
-```bash
-git checkout -b ml/<feature-name>
-```
-
-Replace `<feature-name>` with a descriptive name for the feature you're implementing (e.g., `front-end/user-authentication`, `api/database-optimization`, `database/user-table`).
-
-> ⚠️ **Branch Naming Convention:** Always use `-` (hyphens) to separate words in branch names. **Never use `_` (underscores)** — this is bad practice and inconsistent with Git conventions (e.g., use `front-end/user-auth` not `front-end/user_auth`).
+> ⚠️ **Branch Naming Convention:** Always use `-` (hyphens) to separate words in branch names. **Never use `_` (underscores)** — this is bad practice and inconsistent with Git conventions (e.g., use `LEE-42/user-auth` not `LEE-42/user_auth`).
 
 ## 3. Commit Changes Regularly
 
