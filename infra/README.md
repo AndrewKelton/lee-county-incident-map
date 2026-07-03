@@ -2,59 +2,52 @@
 
 Everything the pipeline runs on, and how to redeploy it. The application code is
 environment-agnostic; this directory is the single place that knows about AWS.
+Package-layout cutover completed 2026-07-03.
 
-## Inventory
+## Inventory (us-east-1)
 
 | Resource | Purpose | Notes |
 |---|---|---|
-| Lambda: incidents fetch | `{"source": "lee_county"}` every 12 h (EventBridge) | handler `lambda_function.fetch_handler`; env `S3_BUFFER_BUCKET` |
-| Lambda: traffic fetch | `{"source": "lee_county_traffic"}` every 5 min (EventBridge) | same artifact + handler; env `S3_BUFFER_BUCKET` |
-| Lambda: flush | hourly (EventBridge); drains S3 buffer → Neon | handler `lambda_function.flush_handler`; env `S3_BUFFER_BUCKET`, `DATABASE_URL` |
-| S3 buffer bucket | durable write buffer under `pending/<source>/` | fetch needs `s3:PutObject`; flush needs `s3:ListBucket/GetObject/DeleteObject` |
-| Neon Postgres | `incidents`, `geocode_cache`, `crawl_queries` | pooled connection string in `.env` / Lambda env |
-| EC2 `crawler-tolga_ec2_1` (`i-0d204316feb527199`) | crawl worker, id `tolga_ec2_1` | t4g.micro, us-east-1, AL2023 |
-| EC2 `crawler-tolga_ec2_2` (`i-0a7606f7ff1b00f17`) | crawl worker, id `tolga_ec2_2` | t4g.micro, us-east-1, AL2023 |
+| Lambda `sheriff-activity-ingest` | fetch + normalize both feeds → S3 | handler `lambda_function.fetch_handler`; env `S3_BUFFER_BUCKET`, `USER_AGENT`; python3.12 x86_64 |
+| Lambda `sheriff-activity-flush` | hourly S3 → Neon upsert | handler `lambda_function.flush_handler`; env `S3_BUFFER_BUCKET`, `DATABASE_URL` |
+| Scheduler `sheriff-traffic-5min` | `rate(5 minutes)` → ingest, `{"source": "lee_county_traffic"}` | EventBridge **Scheduler** (identically named classic EventBridge *rules* exist but are DISABLED leftovers) |
+| Scheduler `sheriff-incidents-12h` | `rate(12 hours)` → ingest, `{"source": "lee_county"}` | |
+| Scheduler `lee-flush-hourly` | `cron(0 * * * ? *)` → flush | |
+| S3 `lee-incidents-buffer-ucfsd` | write buffer under `pending/<source>/` | fetch needs `s3:PutObject`; flush needs `s3:ListBucket/GetObject/DeleteObject` |
+| Neon Postgres | `incidents`, `geocode_cache`, `crawl_queries` | pooled connection string in `.env` / flush env |
+| EC2 `crawler-tolga_ec2_1` (`i-0d204316feb527199`) | worker `tolga_ec2_1`: `leecad-crawl` + `leecad-geocode` services | t4g.micro AL2023 |
+| EC2 `crawler-tolga_ec2_2` (`i-0a7606f7ff1b00f17`) | worker `tolga_ec2_2`: `leecad-crawl` + `leecad-geocode` services | t4g.micro AL2023 |
 
-Worker boxes: repo at `/home/ec2-user/sheriff_activity` with `.env` at its root;
+Worker boxes: repo at `/home/ec2-user/sheriff_activity` with `.env` at its root
+(box-local `USER_AGENT`; never overwrite it);
 `ssh -i ~/.ssh/tolga-ec2-crawler.pem ec2-user@<public-ip>` (IPs change on
-stop/start; SSH is allowlisted to the owner IP in the security group).
+stop/start; SSH allowlisted to the owner IP in the security group).
 Logs: `sudo journalctl -u leecad-crawl -f`.
 
 ## Lambda deploy
 
 ```bash
 ./infra/lambda/build.sh
-aws lambda update-function-code --function-name <fn> \
-    --zip-file fileb://build/lambda.zip        # repeat for all three functions
+for fn in sheriff-activity-ingest sheriff-activity-flush; do
+  aws lambda update-function-code --function-name $fn --zip-file fileb://build/lambda.zip
+  aws lambda wait function-updated --function-name $fn
+done
 ```
 
-All three functions run the same zip; only the handler string and EventBridge
-event differ. Set handlers to `lambda_function.fetch_handler` (both fetch
-functions) and `lambda_function.flush_handler` (flush).
+Both functions run the same zip; only the handler string and schedule differ.
+Rollback: re-upload the previous zip.
 
 ## Worker deploy
 
 ```bash
-tar --exclude .venv --exclude build --exclude data --exclude .git -czf /tmp/leecad.tgz .
-scp -i ~/.ssh/tolga-ec2-crawler.pem /tmp/leecad.tgz ec2-user@<ip>:
+git archive --format=tar.gz -o /tmp/leecad-deploy.tgz HEAD   # committed tree only: no .env, no data/
+scp -i ~/.ssh/tolga-ec2-crawler.pem /tmp/leecad-deploy.tgz ec2-user@<ip>:
 ssh -i ~/.ssh/tolga-ec2-crawler.pem ec2-user@<ip> \
-    'cd sheriff_activity && tar xzf ~/leecad.tgz && uv sync && sudo systemctl restart leecad-crawl'
+    'cd sheriff_activity && tar xzf ~/leecad-deploy.tgz && ~/.local/bin/uv sync && sudo systemctl restart leecad-crawl'
 ```
 
-Unit files live in `infra/systemd/` (install instructions in their headers).
 Safe to restart any time: workers buffer to a local SQLite outbox and re-sync on
-the next hourly tick, and abandoned crawl leases self-heal after expiry.
-
-## Package-layout cutover checklist (phase 2)
-
-1. `./infra/lambda/build.sh`, upload to all three functions, switch their
-   handler strings to `lambda_function.*`.
-2. Watch one fetch cycle (traffic fires within 5 min) and the next hourly flush
-   in CloudWatch; confirm `incidents` count advances in Neon.
-3. On each EC2 box: deploy per "Worker deploy" above, install the new
-   `leecad-crawl.service` (header instructions), disable old `crawler.service`.
-4. Watch one full hourly sync on box 1 (`journalctl -u leecad-crawl -f`) before
-   doing box 2.
-
-Rollback: previous zip re-upload + old handler strings; boxes keep the old
-tarball until step 3 overwrites it, so re-enabling `crawler.service` restores.
+the next hourly tick, and abandoned leases (crawl and geocode) self-heal after
+expiry. Roll one box, watch a sync in the journal, then do the other. Both
+units (`leecad-crawl`, `leecad-geocode`) run on both boxes; restart both after
+a deploy.

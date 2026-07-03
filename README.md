@@ -103,9 +103,9 @@ uv run leecad crawl test    <worker_id>     # quick 2-tick smoke against the rea
 
 The live pipeline is serverless on AWS; a Neon (serverless Postgres) database holds `incidents`, `geocode_cache`, and `crawl_queries`.
 
-- **Fetch Lambdas** (`lambda_function.fetch_handler`) — two functions, one per feed, triggered by EventBridge (`{"source": "lee_county_traffic"}` every 5 min; `{"source": "lee_county"}` every 12 h). They fetch, normalize, and write to S3 — no Neon.
-- **Flush Lambda** (`lambda_function.flush_handler`) — EventBridge hourly; drains the S3 buffer into Neon in one upsert.
-- **Env / IAM** — `S3_BUFFER_BUCKET` on all three; `DATABASE_URL` on the flush function. Fetch needs `s3:PutObject`; flush needs `s3:ListBucket` / `GetObject` / `DeleteObject` plus Neon. (`boto3` is provided by the Lambda runtime.)
+- **Fetch Lambda** (`lambda_function.fetch_handler`) — one function, invoked by two EventBridge Scheduler schedules (`{"source": "lee_county_traffic"}` every 5 min; `{"source": "lee_county"}` every 12 h). It fetches, normalizes, and writes to S3 — no Neon.
+- **Flush Lambda** (`lambda_function.flush_handler`) — EventBridge Scheduler, hourly; drains the S3 buffer into Neon in one upsert.
+- **Env / IAM** — `S3_BUFFER_BUCKET` on both; `DATABASE_URL` on the flush function. Fetch needs `s3:PutObject`; flush needs `s3:ListBucket` / `GetObject` / `DeleteObject` plus Neon. (`boto3` is provided by the Lambda runtime.)
 
 Build the deployment zip (Linux-targeted wheels from `uv.lock`, so `psycopg` / `pydantic-core` match Lambda's runtime):
 
@@ -113,7 +113,7 @@ Build the deployment zip (Linux-targeted wheels from `uv.lock`, so `psycopg` / `
 ./infra/lambda/build.sh    # -> build/lambda.zip
 ```
 
-One artifact serves all three functions; `infra/README.md` has the full AWS inventory plus deploy and rollback recipes, and `infra/systemd/` holds the worker units.
+One artifact serves both functions; `infra/README.md` has the full AWS inventory plus deploy and rollback recipes, and `infra/systemd/` holds the worker units.
 
 ## Data model
 
