@@ -1,18 +1,24 @@
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
-build/
-dist/
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts (Lambda packaging output - see infra/lambda/build.sh)
+/build/
+/dist/
 wheels/
-*.egg-info
+*.zip
 
 # Virtual environments
 .venv
 
-/data
-/build
+# Local state
+/data/*
+!/data/seeds/
 
+# Secrets
 .env
-street_queries.txt
 
-.idea
+# IDE / tooling
+.idea/

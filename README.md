@@ -42,19 +42,22 @@ Because every write is an idempotent upsert on a stable key, a crash or a duplic
 ## Project structure
 
 ```
-adapters/        data sources (IncidentSource: fetch_raw + normalize)
-geocoding/       three-tier geocoder chain + persistent cache
-store/           IncidentStore: SqliteStore (local) / PostgresStore (Neon)
-sync/            worker outbox + hourly flush/lease (outbox · flush · schedule · geocode_worker)
-pipeline/        live feeds: fetch → S3 (fetch_handler), hourly S3 → Neon (flush_handler)
-crawl/           bulk crawl: crawl_queries coordinator + harvest worker
-scripts/         one-off tools (backfill_geocode, migrate_to_postgres, smoke)
-ingest.py        engine wiring (build_store / build_geocoding / geocode_pending)
-models.py        NormalizedIncident canonical schema
-crawl_runner.py  crawl CLI (init | work | geocode | test)
+src/leecad/           the engine package
+  adapters/           data sources (IncidentSource: fetch_raw + normalize)
+  geocoding/          three-tier geocoder chain + persistent cache
+  store/              IncidentStore: SqliteStore (local) / PostgresStore (Neon)
+  sync/               worker outbox + hourly flush/lease (outbox · flush · schedule · geocode_worker)
+  pipeline/           live feeds: fetch → S3 (fetch_handler), hourly S3 → Neon (flush_handler)
+  crawl/              bulk crawl: crawl_queries coordinator + harvest worker
+  ingest.py           engine wiring (build_store / build_geocoding / geocode_pending)
+  models.py           NormalizedIncident canonical schema
+  cli.py              the `leecad` CLI (harvest | backfill | smoke | flush-s3 | crawl …)
+infra/                deployment: Lambda build + entry shim, systemd units, AWS inventory
+tests/                fixture-based tests (pytest)
+data/seeds/           committed crawl seed (~13k street queries)
 ```
 
-Local SQLite DBs and the ~13k-street crawl seed live under `data/` and `street_queries.txt` (git-ignored).
+Runtime SQLite DBs and worker outboxes live under `data/` (git-ignored); the crawl seed is committed at `data/seeds/street_queries.txt`.
 
 ## Running locally
 
@@ -64,11 +67,11 @@ Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+. With `DATABASE_
 uv sync
 
 # Harvest one feed (fetch + normalize + upsert)
-uv run python -m pipeline.runner lee_county
-uv run python -m pipeline.runner lee_county_traffic
+uv run leecad harvest lee_county
+uv run leecad harvest lee_county_traffic
 
 # Geocode whatever still lacks coordinates
-uv run python scripts/backfill_geocode.py 150
+uv run leecad backfill 150
 
 uv run pytest
 ```
@@ -86,33 +89,31 @@ The live API exposes only the ~1,000 most-recent records with no pagination, so 
 **Running it** (`DATABASE_URL` = the shared Neon string):
 
 ```bash
-# Once, by whoever seeds the queue (needs street_queries.txt locally):
-uv run python crawl_runner.py init                 # creates schema + seeds the full street list
+# Once, by whoever seeds the queue (seed list is committed at data/seeds/):
+uv run leecad crawl init                    # creates schema + seeds the full street list
 
 # Each collaborator, on their own machine/IP — both sync to Neon hourly:
-uv run python crawl_runner.py work    <worker_id>  # harvest
-uv run python crawl_runner.py geocode <worker_id>  # geocode
+uv run leecad crawl work    <worker_id>     # harvest
+uv run leecad crawl geocode <worker_id>     # geocode
 
-uv run python crawl_runner.py test    <worker_id>  # quick 2-tick smoke against the real API
+uv run leecad crawl test    <worker_id>     # quick 2-tick smoke against the real API
 ```
 
 ## Deployment
 
 The live pipeline is serverless on AWS; a Neon (serverless Postgres) database holds `incidents`, `geocode_cache`, and `crawl_queries`.
 
-- **Fetch Lambdas** (`pipeline.lambda_handler.fetch_handler`) — two functions, one per feed, triggered by EventBridge (`{"source": "lee_county_traffic"}` every 5 min; `{"source": "lee_county"}` every 12 h). They fetch, normalize, and write to S3 — no Neon.
-- **Flush Lambda** (`pipeline.lambda_handler.flush_handler`) — EventBridge hourly; drains the S3 buffer into Neon in one upsert.
+- **Fetch Lambdas** (`lambda_function.fetch_handler`) — two functions, one per feed, triggered by EventBridge (`{"source": "lee_county_traffic"}` every 5 min; `{"source": "lee_county"}` every 12 h). They fetch, normalize, and write to S3 — no Neon.
+- **Flush Lambda** (`lambda_function.flush_handler`) — EventBridge hourly; drains the S3 buffer into Neon in one upsert.
 - **Env / IAM** — `S3_BUFFER_BUCKET` on all three; `DATABASE_URL` on the flush function. Fetch needs `s3:PutObject`; flush needs `s3:ListBucket` / `GetObject` / `DeleteObject` plus Neon. (`boto3` is provided by the Lambda runtime.)
 
-Build the deployment zip with Linux-targeted wheels so `psycopg` / `pydantic-core` match Lambda's runtime:
+Build the deployment zip (Linux-targeted wheels from `uv.lock`, so `psycopg` / `pydantic-core` match Lambda's runtime):
 
 ```bash
-uv pip install --python-platform x86_64-manylinux2014 --python-version 3.12 \
-  --target build/package --only-binary :all: -r requirements.txt
-cp -r adapters geocoding store pipeline build/package/
-cp models.py paths.py ingest.py config.py build/package/
-cd build/package && zip -rq ../lambda.zip . && cd ../..
+./infra/lambda/build.sh    # -> build/lambda.zip
 ```
+
+One artifact serves all three functions; `infra/README.md` has the full AWS inventory plus deploy and rollback recipes, and `infra/systemd/` holds the worker units.
 
 ## Data model
 

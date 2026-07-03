@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 from datetime import datetime, timezone
-from adapters.lee_county import LeeCountyAdapter
+from leecad.adapters.lee_county import LeeCountyAdapter
 
-FIXTURE = json.loads(Path("tests/fixtures/lee_county_sample.json").read_text())
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "lee_county_sample.json").read_text())
 FETCHED_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 def test_normalize_produces_valid_records():

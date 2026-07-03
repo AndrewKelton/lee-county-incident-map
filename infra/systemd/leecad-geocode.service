@@ -1,0 +1,21 @@
+# Geocoding worker — drains the coordinate backlog, syncing to Neon hourly via
+# its local outbox. Runs fine on the same box as leecad-crawl (different worker
+# loops, same hourly sync cadence).
+#
+# Install: same recipe as leecad-crawl.service (substitute the worker id).
+[Unit]
+Description=leecad geocoding worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/sheriff_activity
+Environment=PYTHONUNBUFFERED=1
+Environment=LEECAD_DATA_DIR=/home/ec2-user/sheriff_activity/data
+ExecStart=/home/ec2-user/.local/bin/uv run --frozen leecad crawl geocode WORKER_ID_HERE
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

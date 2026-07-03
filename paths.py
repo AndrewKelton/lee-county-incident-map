@@ -1,9 +1,0 @@
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-DATA_DIR = PROJECT_ROOT / "data"
-
-INCIDENTS_DB = DATA_DIR / "incidents.db"
-GEOCODE_CACHE_DB = DATA_DIR / "geocode_cache.db"
-
-STREET_QUERIES = PROJECT_ROOT / "street_queries.txt"

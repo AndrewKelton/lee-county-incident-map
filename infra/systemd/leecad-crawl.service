@@ -1,0 +1,26 @@
+# Crawl harvest worker — one per machine (each public IP gets its own API budget).
+#
+# Install (phase-2 cutover; replaces the hand-written crawler.service):
+#   sudo systemctl disable --now crawler.service        # retire the old unit
+#   sed 's/WORKER_ID_HERE/tolga_ec2_1/' infra/systemd/leecad-crawl.service \
+#     | sudo tee /etc/systemd/system/leecad-crawl.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now leecad-crawl
+#
+# Expects the repo at /home/ec2-user/sheriff_activity with .env (DATABASE_URL,
+# USER_AGENT) at its root, and uv installed at ~/.local/bin/uv.
+[Unit]
+Description=leecad crawl harvest worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/sheriff_activity
+Environment=PYTHONUNBUFFERED=1
+Environment=LEECAD_DATA_DIR=/home/ec2-user/sheriff_activity/data
+ExecStart=/home/ec2-user/.local/bin/uv run --frozen leecad crawl work WORKER_ID_HERE
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
