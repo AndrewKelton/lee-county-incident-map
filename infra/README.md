@@ -2,7 +2,6 @@
 
 Everything the pipeline runs on, and how to redeploy it. The application code is
 environment-agnostic; this directory is the single place that knows about AWS.
-Package-layout cutover completed 2026-07-03.
 
 ## Inventory (us-east-1)
 
@@ -15,12 +14,11 @@ Package-layout cutover completed 2026-07-03.
 | Scheduler `lee-flush-hourly` | `cron(0 * * * ? *)` → flush | |
 | S3 `lee-incidents-buffer-ucfsd` | write buffer under `pending/<source>/` | fetch needs `s3:PutObject`; flush needs `s3:ListBucket/GetObject/DeleteObject` |
 | Neon Postgres | `incidents`, `geocode_cache`, `crawl_queries` | pooled connection string in `.env` / flush env |
-| EC2 `crawler-tolga_ec2_1` (`i-0d204316feb527199`) | worker `tolga_ec2_1`: `leecad-crawl` + `leecad-geocode` services | t4g.micro AL2023 |
-| EC2 `crawler-tolga_ec2_2` (`i-0a7606f7ff1b00f17`) | worker `tolga_ec2_2`: `leecad-crawl` + `leecad-geocode` services | t4g.micro AL2023 |
+| EC2 worker boxes | each runs `leecad-crawl` + `leecad-geocode` services | t4g.micro, AL2023; one crawl + one geocode worker per box, distinct worker ids (instance IDs/IPs kept in ops notes, not here) |
 
 Worker boxes: repo at `/home/ec2-user/sheriff_activity` with `.env` at its root
 (box-local `USER_AGENT`; never overwrite it);
-`ssh -i ~/.ssh/tolga-ec2-crawler.pem ec2-user@<public-ip>` (IPs change on
+`ssh -i ~/.ssh/<crawler-key>.pem ec2-user@<public-ip>` (IPs change on
 stop/start; SSH allowlisted to the owner IP in the security group).
 Logs: `sudo journalctl -u leecad-crawl -f`.
 
@@ -41,8 +39,8 @@ Rollback: re-upload the previous zip.
 
 ```bash
 git archive --format=tar.gz -o /tmp/leecad-deploy.tgz HEAD   # committed tree only: no .env, no data/
-scp -i ~/.ssh/tolga-ec2-crawler.pem /tmp/leecad-deploy.tgz ec2-user@<ip>:
-ssh -i ~/.ssh/tolga-ec2-crawler.pem ec2-user@<ip> \
+scp -i ~/.ssh/<crawler-key>.pem /tmp/leecad-deploy.tgz ec2-user@<ip>:
+ssh -i ~/.ssh/<crawler-key>.pem ec2-user@<ip> \
     'cd sheriff_activity && tar xzf ~/leecad-deploy.tgz && ~/.local/bin/uv sync && sudo systemctl restart leecad-crawl'
 ```
 

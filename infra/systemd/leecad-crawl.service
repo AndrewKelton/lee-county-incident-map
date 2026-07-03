@@ -1,8 +1,7 @@
 # Crawl harvest worker — one per machine (each public IP gets its own API budget).
 #
-# Install (phase-2 cutover; replaces the hand-written crawler.service):
-#   sudo systemctl disable --now crawler.service        # retire the old unit
-#   sed 's/WORKER_ID_HERE/tolga_ec2_1/' infra/systemd/leecad-crawl.service \
+# Install (substitute a worker id unique to this box, e.g. crawl_1):
+#   sed 's/WORKER_ID_HERE/<worker-id>/' infra/systemd/leecad-crawl.service \
 #     | sudo tee /etc/systemd/system/leecad-crawl.service
 #   sudo systemctl daemon-reload && sudo systemctl enable --now leecad-crawl
 #
