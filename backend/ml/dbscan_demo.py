@@ -12,8 +12,8 @@ from sklearn.cluster import DBSCAN
 # Tweak these to change the shape of the demo without touching any logic.
 
 # Path to the CSV — relative to this file so it works from any cwd.
-CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "incidents-small.csv")
-N_POINTS = 50             # how many rows to sample from the CSV
+CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
+N_POINTS = 251             # how many rows to sample from the CSV
 RANDOM_SEED = 42          # used only for the random sample so results are reproducible
 
 # EPS is in the same units as the projected coordinates (see load_points).
@@ -35,7 +35,7 @@ UNVISITED_COLOR = "#CCCCCC"
 
 def load_points() -> np.ndarray:
     """
-    Load N_POINTS incidents from incidents-small.csv and return a (N, 2)
+    Load N_POINTS incidents from late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv and return a (N, 2)
     array of projected x/y coordinates suitable for DBSCAN.
 
     Steps:
