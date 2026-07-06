@@ -7,22 +7,31 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
+import folium
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Tweak these to change the shape of the demo without touching any logic.
 
 # Path to the CSV — relative to this file so it works from any cwd.
 CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
-N_POINTS = 251             # how many rows to sample from the CSV
+N_POINTS = 250           # how many rows to sample from the CSV
 RANDOM_SEED = 42          # used only for the random sample so results are reproducible
 
 # EPS is in the same units as the projected coordinates (see load_points).
 # After mean-centering and scaling to ~km, a value around 0.3–0.8 is a good start.
-EPS         = 0.5         # DBSCAN ε — neighborhood radius
-MIN_SAMPLES = 2           # DBSCAN min_samples
+EPS         = 0.365         # DBSCAN ε — neighborhood radius
+MIN_SAMPLES = 3             # DBSCAN min_samples
 
-SNAPSHOT_OUT     = "dbscan_snapshot.png"
-ANIMATION_OUT    = "dbscan_animation.gif"
+'''
+Level EPS (km)	MIN_SAMPLES	Rationale
+Street	0.365	3	~365m radius — one or two block faces
+Neighborhood	0.9	6	~900m radius — walkable neighborhood scale
+District	4.0	20	~4km radius — city district / county zone
+'''
+
+SNAPSHOT_OUT     = "output/dbscan_snapshot.png"
+ANIMATION_OUT    = "output/dbscan_animation.gif"
+FOLIUM_OUT       = "output/dbscan_map.html"
 ANIM_INTERVAL_MS = 600    # milliseconds between animation frames
 
 # ── Color palette ─────────────────────────────────────────────────────────────
@@ -50,16 +59,51 @@ def load_points() -> np.ndarray:
         equal x/y scale — appropriate for a small county-level extent.
       - Return np.column_stack([x, y]) as a float64 array.
     """
-    incidents_df = pd.read_csv(CSV_PATH)
-    incidents_20_random_df = incidents_df.sample(n=N_POINTS, random_state=RANDOM_SEED)
+    incidents_df = pd.read_csv(CSV_PATH).dropna(subset=["lat", "lon"])
+    # incidents_20_random_df = incidents_df.sample(n=N_POINTS, random_state=RANDOM_SEED)
     
-    lat_mean_rad = np.radians(incidents_20_random_df["lat"].mean())
-    x = (incidents_20_random_df["lon"] - incidents_20_random_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
-    y = (incidents_20_random_df["lat"] - incidents_20_random_df["lat"].mean()) * 111.32
+    lat_mean_rad = np.radians(incidents_df["lat"].mean())
+    x = (incidents_df["lon"] - incidents_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
+    y = (incidents_df["lat"] - incidents_df["lat"].mean()) * 111.32
     
     points = np.column_stack([x, y])
-    return points
+    lats = incidents_df["lat"].to_numpy()
+    lons = incidents_df["lon"].to_numpy()
+    return points, lats, lons
     
+
+
+# ── 2. Folium Map ────────────────────────────────────────────────────────────
+
+def plot_folium_map(lats: np.ndarray, lons: np.ndarray, labels: np.ndarray) -> None:
+    """
+    Plot DBSCAN results on an interactive Leaflet map using folium.
+    Each point is rendered as a CircleMarker colored by cluster label.
+    Noise points (-1) are shown in NOISE_COLOR. Saves to FOLIUM_OUT.
+    """
+    center_lat = float(lats.mean())
+    center_lon = float(lons.mean())
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
+
+    for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
+        if label == -1:
+            color = NOISE_COLOR
+            tooltip = "Noise"
+        else:
+            color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+            tooltip = f"Cluster {label}"
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=5,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.8,
+            tooltip=tooltip,
+        ).add_to(m)
+
+    m.save(FOLIUM_OUT)
+    print(f"Folium map saved to {FOLIUM_OUT}")
 
 
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
@@ -96,7 +140,11 @@ def cluster_hull_patch(points: np.ndarray, color: str, alpha: float = 0.15):
     if len(points) < 3:
       return None
     
-    hull = ConvexHull(points)
+    try:
+      hull = ConvexHull(points)
+    except:
+      return None
+    
     return Polygon(xy=points[hull.vertices], fill=True, facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.5)
 
 
@@ -350,10 +398,11 @@ def main():
       4. save_animation()  → saves ANIMATION_OUT
       5. Print a summary: how many clusters found, how many noise points.
     """
-    points = load_points()
+    points, lats, lons = load_points()
     labels = run_dbscan(points)
     plot_snapshot(points, labels)
-    save_animation(points, labels)
+    plot_folium_map(lats, lons, labels)
+    # save_animation(points, labels)
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
