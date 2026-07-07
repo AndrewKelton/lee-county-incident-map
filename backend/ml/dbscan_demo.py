@@ -7,7 +7,7 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
-from shapely.geometry import Point
+from shapely.geometry import Point, mapping
 from shapely.ops import unary_union
 import folium
 import sys
@@ -74,40 +74,6 @@ def load_points() -> np.ndarray:
     return points, lats, lons
     
 
-
-# ── 2. Folium Map ────────────────────────────────────────────────────────────
-
-def plot_folium_map(lats: np.ndarray, lons: np.ndarray, labels: np.ndarray) -> None:
-    """
-    Plot DBSCAN results on an interactive Leaflet map using folium.
-    Each point is rendered as a CircleMarker colored by cluster label.
-    Noise points (-1) are shown in NOISE_COLOR. Saves to FOLIUM_OUT.
-    """
-    center_lat = float(lats.mean())
-    center_lon = float(lons.mean())
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
-
-    for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
-        if label == -1:
-            color = NOISE_COLOR
-            tooltip = "Noise"
-        else:
-            color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
-            tooltip = f"Cluster {label}"
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=5,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.8,
-            tooltip=tooltip,
-        ).add_to(m)
-
-    m.save(FOLIUM_OUT)
-    print(f"Folium map saved to {FOLIUM_OUT}")
-
-
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
 
 def run_dbscan(points: np.ndarray) -> np.ndarray:
@@ -126,11 +92,12 @@ def run_dbscan(points: np.ndarray) -> np.ndarray:
 
 # ── 3. Cluster Union Buffer Helper ─────────────────────────────────────────────────────
 
-def cluster_union_buffer(points: np.ndarray):
+def cluster_union_buffer(points: np.ndarray, eps=EPS):
     """Returns a Shapely Polygon or MultiPolygon: the union of EPS-radius
     circles centred at each point in the cluster."""
+    
     shapely_points = [Point(p) for p in points]
-    buffers = [p.buffer(EPS) for p in shapely_points]
+    buffers = [p.buffer(eps) for p in shapely_points]
     return unary_union(buffers)
 
 def geometry_to_patches(geometry, color: str, alpha: float = 0.15) -> list:
@@ -202,194 +169,53 @@ def plot_snapshot(points: np.ndarray, labels: np.ndarray) -> None:
     plt.close(fig)
 
 
-# ── 5. Animation ──────────────────────────────────────────────────────────────
+# ── 5. Plot Folium Mapping ──────────────────────────────────────────────────────────────
 
-def build_animation_frames(points: np.ndarray, labels: np.ndarray) -> list[dict]:
+def plot_folium_map(lats: np.ndarray, lons: np.ndarray, labels: np.ndarray) -> None:
     """
-    Build an ordered list of frame-state dicts that FuncAnimation will consume.
-    This simulates DBSCAN's BFS expansion for visualization purposes —
-    it does NOT re-run sklearn; it uses the already-computed labels to drive
-    the reveal order.
+    Plot DBSCAN results on an interactive Leaflet map using folium.
+    Each point is rendered as a CircleMarker colored by cluster label.
+    Noise points (-1) are shown in NOISE_COLOR. Saves to FOLIUM_OUT.
+    """
+    center_lat = float(lats.mean())
+    center_lon = float(lons.mean())
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
 
-    Frame state dict schema:
-        {
-          "visited":  set of point indices colored so far,
-          "current":  index of the point being "processed" this frame (or None),
-          "eps_ring": True if we should draw the ε-circle this frame,
-          "cluster_complete": set of cluster ids whose hull should be drawn,
+    for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
+      if label == -1:
+        color = NOISE_COLOR
+        tooltip = "Noise"
+      else:
+        color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+        tooltip = f"Cluster {label}"
+      folium.CircleMarker(
+        location=[lat, lon],
+        radius=5,
+        color=color,
+        fill=True,
+        fill_color=color,
+        fill_opacity=0.8,
+        tooltip=tooltip,
+      ).add_to(m)
+
+    eps_deg = EPS / 111.32
+    for label in sorted(set(labels) - {-1}):
+      mask = labels == label
+      color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+      lonlat_points = np.column_stack([lons[mask], lats[mask]])
+      geometry = cluster_union_buffer(lonlat_points, eps=eps_deg)
+      folium.GeoJson(
+        mapping(geometry),
+        style_function=lambda f, c=color: {
+          'fillColor': c,
+          'color': c,
+          'fillOpacity': 0.15,
+          'weight': 1.5,
         }
+      ).add_to(m)
 
-    Steps:
-      - Frame 0: visited=empty, current=None, eps_ring=False — all gray dots.
-      - Group point indices by label. Process clusters in label order.
-        For each cluster:
-          - Pick the point with the most neighbors within EPS as the "seed" core.
-          - BFS: each iteration = one frame. The frame shows the current point
-            highlighted with its ε-circle, then the next frame adds it to visited.
-          - Once the cluster queue is empty, emit one "hull reveal" frame
-            (eps_ring=False, full cluster colored + hull drawn).
-      - After all clusters, process noise points: one frame each, colored gray.
-      - Return the list of frame dicts.
-    """
-    from collections import deque
-
-    frames = []
-
-    # Frame 0: nothing visited
-    frames.append({
-        'visited': set(),
-        'current': None,
-        'eps_ring': False,
-        'cluster_complete': set(),
-    })
-
-    completed_clusters: set = set()
-    visited_so_far: set = set()
-
-    cluster_labels = sorted(set(labels) - {-1})
-    label_to_indices = {lbl: np.where(labels == lbl)[0].tolist() for lbl in cluster_labels}
-
-    for lbl in cluster_labels:
-        indices = label_to_indices[lbl]
-        cluster_pts = points[indices]
-
-        # Seed = point with the most neighbors within EPS
-        dists = np.linalg.norm(cluster_pts[:, None] - cluster_pts[None, :], axis=2)
-        seed_local = int(np.argmax((dists < EPS).sum(axis=1)))
-        seed_global = indices[seed_local]
-
-        remaining = sorted([i for i in indices if i != seed_global],
-                           key=lambda i: np.linalg.norm(points[i] - points[seed_global]))
-        queue = deque([seed_global] + remaining)
-
-        while queue:
-            current = queue.popleft()
-            frames.append({
-                'visited': set(visited_so_far),
-                'current': current,
-                'eps_ring': True,
-                'cluster_complete': set(completed_clusters),
-            })
-            visited_so_far.add(current)
-
-        completed_clusters = completed_clusters | {lbl}
-        frames.append({
-            'visited': set(visited_so_far),
-            'current': None,
-            'eps_ring': False,
-            'cluster_complete': set(completed_clusters),
-        })
-
-    for i in np.where(labels == -1)[0]:
-        frames.append({
-            'visited': set(visited_so_far),
-            'current': int(i),
-            'eps_ring': False,
-            'cluster_complete': set(completed_clusters),
-        })
-        visited_so_far.add(int(i))
-
-    return frames
-
-
-def animate(frame_idx: int, points: np.ndarray, frames: list[dict], ax) -> list:
-    """
-    FuncAnimation update function — called once per frame.
-    Must clear the axes and redraw the current state from frames[frame_idx].
-
-    Steps:
-      - ax.cla() to clear.
-      - Re-apply axis labels, title, aspect ratio, and fixed x/y limits
-        (compute limits once outside this function so they don't jump).
-      - Draw all unvisited points in UNVISITED_COLOR.
-      - Draw all visited points colored by their cluster label.
-      - If frame["eps_ring"] is True, draw a Circle patch at frame["current"]
-        with radius=EPS, fill=False, linestyle='--', color='black'.
-      - For each cluster id in frame["cluster_complete"], call
-        cluster_hull_patch() and add it to ax.
-      - Highlight frame["current"] point with a larger marker if not None.
-      - Return a list of all artists drawn (required by FuncAnimation blit=False).
-    """
-    frame = frames[frame_idx]
-    ax.cla()
-    ax.set_xlim(ax._xlim_animated)
-    ax.set_ylim(ax._ylim_animated)
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_title('DBSCAN — BFS Expansion')
-    ax.set_aspect('equal')
-
-    artists = []
-    visited = frame['visited']
-    current = frame['current']
-
-    unvisited = [i for i in range(len(points)) if i not in visited and i != current]
-    if unvisited:
-        artists.append(ax.scatter(points[unvisited, 0], points[unvisited, 1],
-                                  c=UNVISITED_COLOR, zorder=2))
-
-    for i in visited:
-        color = ax._label_colors.get(i, NOISE_COLOR)
-        artists.append(ax.scatter(points[i, 0], points[i, 1], c=color, zorder=3))
-
-    for cid in frame['cluster_complete']:
-        mask = ax._cluster_masks[cid]
-        color = CLUSTER_COLORS[cid % len(CLUSTER_COLORS)]
-        patch = cluster_hull_patch(points[mask], color)
-        if patch is not None:
-            ax.add_patch(patch)
-            artists.append(patch)
-
-    if frame['eps_ring'] and current is not None:
-        circle = plt.Circle(points[current], EPS,
-                            fill=False, linestyle='--', color='black', zorder=4)
-        ax.add_patch(circle)
-        artists.append(circle)
-
-    if current is not None:
-        color = ax._label_colors.get(current, NOISE_COLOR)
-        artists.append(ax.scatter(points[current, 0], points[current, 1],
-                                  c=color, s=120, zorder=5,
-                                  edgecolors='black', linewidths=1))
-
-    return artists
-
-
-def save_animation(points: np.ndarray, labels: np.ndarray) -> None:
-    """
-    Wire up FuncAnimation and save to ANIMATION_OUT.
-
-    Steps:
-      - Call build_animation_frames(points, labels) to get the frame list.
-      - Create figure and axes; compute and store fixed axis limits
-        (min/max of points ± EPS + small padding) so they don't shift mid-animation.
-      - Instantiate FuncAnimation(fig, animate, frames=len(frames),
-          fargs=(points, frames, ax), interval=ANIM_INTERVAL_MS, repeat=False).
-      - Save with anim.save(ANIMATION_OUT, writer='pillow', fps=...).
-      - Print a confirmation message.
-    """
-    frames = build_animation_frames(points, labels)
-
-    fig, ax = plt.subplots()
-    pad = EPS * 1.5
-    ax._xlim_animated = (points[:, 0].min() - pad, points[:, 0].max() + pad)
-    ax._ylim_animated = (points[:, 1].min() - pad, points[:, 1].max() + pad)
-    ax._label_colors = {
-        i: (CLUSTER_COLORS[lbl % len(CLUSTER_COLORS)] if lbl >= 0 else NOISE_COLOR)
-        for i, lbl in enumerate(labels)
-    }
-    ax._cluster_masks = {
-        lbl: np.where(labels == lbl)[0]
-        for lbl in set(labels) - {-1}
-    }
-
-    fps = max(1, 1000 // ANIM_INTERVAL_MS)
-    anim = FuncAnimation(fig, animate, frames=len(frames),
-                         fargs=(points, frames, ax),
-                         interval=ANIM_INTERVAL_MS, repeat=False)
-    anim.save(ANIMATION_OUT, writer='pillow', fps=fps)
-    plt.close(fig)
-    print(f'Animation saved to {ANIMATION_OUT}')
+    m.save(FOLIUM_OUT)
+    print(f"Folium map saved to {FOLIUM_OUT}")
 
 
 # ── 6. Entry Point ────────────────────────────────────────────────────────────
@@ -404,24 +230,20 @@ def main():
       5. Print a summary: how many clusters found, how many noise points.
     """
     
-    option = -1
+    option = "all"
     if len(sys.argv) > 1:
       option = sys.argv[1]
     
     points, lats, lons = load_points()
     labels = run_dbscan(points)
     
-    if option == -1 or option == 0:
+    if option == -1 or option == "snapshot":
       # plot normal snapshot grid
       plot_snapshot(points, labels)
       
-    if option == -1 or option == 1:
+    if option == -1 or option == "mapping":
       # plot mapping of clusters
       plot_folium_map(lats, lons, labels)
-      
-    # if option == -1 or option == 3: 
-    #   # create gif animation of cluster decisions
-    #   save_animation(points, labels)
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
