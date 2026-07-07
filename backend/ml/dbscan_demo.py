@@ -7,7 +7,10 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
+from shapely.geometry import Point
+from shapely.ops import unary_union
 import folium
+import sys
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Tweak these to change the shape of the demo without touching any logic.
@@ -19,8 +22,8 @@ RANDOM_SEED = 42          # used only for the random sample so results are repro
 
 # EPS is in the same units as the projected coordinates (see load_points).
 # After mean-centering and scaling to ~km, a value around 0.3–0.8 is a good start.
-EPS         = 0.365         # DBSCAN ε — neighborhood radius
-MIN_SAMPLES = 3             # DBSCAN min_samples
+EPS         = 4.0           # DBSCAN ε — neighborhood radius
+MIN_SAMPLES = 20             # DBSCAN min_samples
 
 '''
 Level EPS (km)	MIN_SAMPLES	Rationale
@@ -60,7 +63,6 @@ def load_points() -> np.ndarray:
       - Return np.column_stack([x, y]) as a float64 array.
     """
     incidents_df = pd.read_csv(CSV_PATH).dropna(subset=["lat", "lon"])
-    # incidents_20_random_df = incidents_df.sample(n=N_POINTS, random_state=RANDOM_SEED)
     
     lat_mean_rad = np.radians(incidents_df["lat"].mean())
     x = (incidents_df["lon"] - incidents_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
@@ -122,31 +124,34 @@ def run_dbscan(points: np.ndarray) -> np.ndarray:
     return model.labels_
 
 
-# ── 3. Convex Hull Helper ─────────────────────────────────────────────────────
+# ── 3. Cluster Union Buffer Helper ─────────────────────────────────────────────────────
 
-def cluster_hull_patch(points: np.ndarray, color: str, alpha: float = 0.15):
-    """
-    Given the subset of points belonging to one cluster, return a
-    matplotlib Polygon patch tracing the convex hull of those points.
+def cluster_union_buffer(points: np.ndarray):
+    """Returns a Shapely Polygon or MultiPolygon: the union of EPS-radius
+    circles centred at each point in the cluster."""
+    shapely_points = [Point(p) for p in points]
+    buffers = [p.buffer(EPS) for p in shapely_points]
+    return unary_union(buffers)
 
-    Steps:
-      - If len(points) < 3, skip hull (can't form a polygon) and return None.
-      - Use scipy.spatial.ConvexHull(points) to get the hull.
-      - Index points[hull.vertices] to get the ordered boundary coordinates.
-      - Return a matplotlib.patches.Polygon built from those coordinates,
-        with fill=True, facecolor=color, alpha=alpha, edgecolor=color,
-        linewidth=1.5.
-    """
-    if len(points) < 3:
-      return None
-    
-    try:
-      hull = ConvexHull(points)
-    except:
-      return None
-    
-    return Polygon(xy=points[hull.vertices], fill=True, facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-
+def geometry_to_patches(geometry, color: str, alpha: float = 0.15) -> list:
+    """Convert a Shapely Polygon or MultiPolygon into a list of matplotlib
+    Polygon patches with the given color.  Returns an empty list for any
+    other geometry type (e.g. LineString from a degenerate cluster)."""
+    if geometry is None:
+        return []
+    if geometry.geom_type == 'Polygon':
+        geoms = [geometry]
+    elif geometry.geom_type == 'MultiPolygon':
+        geoms = list(geometry.geoms)
+    else:
+        return []
+    patches = []
+    for geom in geoms:
+        coords = np.array(geom.exterior.coords)
+        patches.append(Polygon(xy=coords, fill=True, facecolor=color,
+                               alpha=alpha, edgecolor=color, linewidth=1.5))
+    return patches
+  
 
 # ── 4. Static Snapshot ────────────────────────────────────────────────────────
 
@@ -180,8 +185,8 @@ def plot_snapshot(points: np.ndarray, labels: np.ndarray) -> None:
         color = CLUSTER_COLORS[label % len(CLUSTER_COLORS)]
         mask = labels == label
         ax.scatter(points[mask, 0], points[mask, 1], c=color, zorder=3)
-        patch = cluster_hull_patch(points[mask], color)
-        if patch is not None:
+        geometry = cluster_union_buffer(points[mask])
+        for patch in geometry_to_patches(geometry, color):
             ax.add_patch(patch)
         legend_handles.append(mpatches.Patch(color=color, label=f'Cluster {label}'))
 
@@ -398,11 +403,25 @@ def main():
       4. save_animation()  → saves ANIMATION_OUT
       5. Print a summary: how many clusters found, how many noise points.
     """
+    
+    option = -1
+    if len(sys.argv) > 1:
+      option = sys.argv[1]
+    
     points, lats, lons = load_points()
     labels = run_dbscan(points)
-    plot_snapshot(points, labels)
-    plot_folium_map(lats, lons, labels)
-    # save_animation(points, labels)
+    
+    if option == -1 or option == 0:
+      # plot normal snapshot grid
+      plot_snapshot(points, labels)
+      
+    if option == -1 or option == 1:
+      # plot mapping of clusters
+      plot_folium_map(lats, lons, labels)
+      
+    # if option == -1 or option == 3: 
+    #   # create gif animation of cluster decisions
+    #   save_animation(points, labels)
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
