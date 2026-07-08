@@ -1,12 +1,16 @@
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html, body {
+html,
+body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #1a1a2e;
   color: #eee;
 }
@@ -91,7 +95,7 @@ html, body {
   position: relative;
 }
 
-#nature-filter-btn {
+.nature-filter-btn {
   background: #222240;
   color: #eee;
   border: 1px solid #444;
@@ -102,16 +106,19 @@ html, body {
   white-space: nowrap;
 }
 
-#nature-filter-btn:hover {
+.nature-filter-btn:hover {
   border-color: #6c8ebf;
 }
 
-#nature-filter-btn.nature-filtered {
+/* #nature-filter-btn.nature-filtered {
+  border-color: #8ab4f8;
+  color: #8ab4f8;
+} */
+.nature-types {
   border-color: #8ab4f8;
   color: #8ab4f8;
 }
-
-#nature-panel {
+.nature-panel {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -123,10 +130,10 @@ html, body {
   min-width: 220px;
   max-height: 320px;
   overflow-y: auto;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
-#nature-panel.hidden {
+.hidden {
   display: none;
 }
 
@@ -142,7 +149,7 @@ html, body {
 }
 
 .nature-row:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .nature-row.nature-all {
@@ -168,12 +175,18 @@ html, body {
 
 #map {
   position: fixed;
-  top: 48px;   /* height of top bar */
+  top: 48px; /* height of top bar */
   left: 0;
   right: 0;
   bottom: 32px; /* height of footer bar */
 }
-
+.mapWrapper {
+  position: fixed;
+  top: 48px; /* height of top bar */
+  left: 0;
+  right: 0;
+  bottom: 32px; /* height of footer bar */
+}
 /* ── Footer bar ────────────────────────────────────────────────────────────── */
 
 #footer-bar {
@@ -247,7 +260,9 @@ html, body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Leaflet popup overrides ───────────────────────────────────────────────── */
@@ -257,7 +272,7 @@ html, body {
   color: #eee;
   border: 1px solid #333;
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .leaflet-popup-tip {
@@ -292,4 +307,47 @@ html, body {
   color: #555;
   display: block;
   margin-top: 2px;
+}
+
+/* ── INTERACTIVE LIST ───────────────────────────────────────────────────────────────────── */
+.list-wrapper {
+  width: 500px;
+  position: fixed;
+  top: 56px; /* height of top bar */
+  left: 0;
+  right: 0;
+  bottom: 32px; /* height of footer bar */
+  background-color: #222240;
+  z-index: 10;
+  border-top: 1px solid #6c8ebf;
+  border-bottom: 1px solid #6c8ebf;
+  border-right: 1px solid #6c8ebf;
+}
+.list-pull {
+  cursor: pointer;
+  height: 170px;
+  width: 50px;
+  background: #16162a;
+  position: absolute;
+  top: calc(100% - 50% - 60px);
+  left: 100%;
+  border-top: 2px solid #6c8ebf;
+  border-right: 2px solid #6c8ebf;
+  border-bottom: 2px solid #6c8ebf;
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.list-pull:hover{
+  background: #2d2d53;
+}
+.list-pull:active{
+  background: #252542;
+}
+.pull-right {
+  transform: translateX(0px);
+  transition: 0.5s;
+}
+.pull-left {
+  transform: translateX(-500px);
+  transition: 0.5s;
 }

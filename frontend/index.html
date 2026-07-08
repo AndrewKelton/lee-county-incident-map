@@ -1,58 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lee County Incident Map</title>
-  <link rel="icon" type="image/svg+xml" href="leecountyincidentmap_logo.svg" />
-
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-
-  <header id="top-bar">
-    <div id="branding">
-      <span id="title">Lee County Incident Map</span>
-      <span id="subtitle">Lee County Sheriff's Office — last 1,000 incidents (48hr delay)</span>
-    </div>
-    <div id="controls">
-      <label for="date-filter">Show incidents from:</label>
-      <select id="date-filter">
-        <option value="3">3 Days Ago</option>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-        <!-- <option value="0">All available</option> -->
-      </select>
-      <span id="count-badge">— incidents</span>
-      <div id="nature-filter-wrap">
-        <button id="nature-filter-btn">All types ▾</button>
-        <div id="nature-panel" class="hidden"></div>
-      </div>
-    </div>
-  </header>
-
-  <div id="map"></div>
-
-  <footer id="footer-bar">
-    Created by: <a href="https://www.linkedin.com/in/andrew-kelton" target="_blank" rel="noopener">Andrew Kelton</a>
-    &nbsp;&middot;&nbsp;
-    <a href="https://github.com/AndrewKelton/fort-myers-crime-map" target="_blank" rel="noopener">View on GitHub</a>
-  </footer>
-
-  <div id="loading-overlay">
-    <div id="loading-box">
-      <div class="spinner"></div>
-      <p id="loading-msg">Loading incidents…</p>
-    </div>
-  </div>
-
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <script src="config.js"></script>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>sd1-map</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
