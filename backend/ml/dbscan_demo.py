@@ -3,12 +3,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon
-from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from shapely.geometry import Point, mapping
 from shapely.ops import unary_union
+from kneed import KneeLocator, find_shape
 import folium
 import sys
 
@@ -23,10 +22,10 @@ RANDOM_SEED = 42          # used only for the random sample so results are repro
 # EPS is in the same units as the projected coordinates (see load_points).
 # After mean-centering and scaling to ~km, a value around 0.3–0.8 is a good start.
 EPS         = 4.0           # DBSCAN ε — neighborhood radius
-MIN_SAMPLES = 20             # DBSCAN min_samples
+MIN_SAMPLES = 20            # DBSCAN min_samples
 
 '''
-Level EPS (km)	MIN_SAMPLES	Rationale
+Level EPS (km)	min_samples	Rationale
 Street	0.365	3	~365m radius — one or two block faces
 Neighborhood	0.9	6	~900m radius — walkable neighborhood scale
 District	4.0	20	~4km radius — city district / county zone
@@ -71,21 +70,34 @@ def load_points() -> np.ndarray:
     points = np.column_stack([x, y])
     lats = incidents_df["lat"].to_numpy()
     lons = incidents_df["lon"].to_numpy()
-    return points, lats, lons
+    
+    """kneedle DBSCAN optimum epsilon parameter"""
+    # direction, curve = find_shape(-x, y)
+    # kneedle = KneeLocator(-x, y, curve=curve, direction=direction)
+
+    # min_samples = int(-kneedle.elbow)
+    # print(f"min_samples: {min_samples}")
+    # kneedle.plot_knee()
+    # plt.show()
+    
+    min_samples=MIN_SAMPLES
+    
+    return points, lats, lons, min_samples
     
 
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
 
-def run_dbscan(points: np.ndarray) -> np.ndarray:
+def run_dbscan(points: np.ndarray, min_samples: int) -> np.ndarray:
     """
     Fit DBSCAN on the point array and return the label array.
 
     Steps:
-      - Instantiate sklearn.cluster.DBSCAN with eps=EPS, min_samples=MIN_SAMPLES.
+      - Instantiate sklearn.cluster.DBSCAN with eps=EPS, min_samples=min_samples.
       - Call .fit(points) and return model.labels_
         (labels are integers 0..K-1 for clusters; -1 means noise).
     """
-    model = DBSCAN(eps=EPS, min_samples=MIN_SAMPLES)
+    
+    model = DBSCAN(eps=EPS, min_samples=min_samples)
     model.fit(points)
     return model.labels_
 
@@ -230,12 +242,12 @@ def main():
       5. Print a summary: how many clusters found, how many noise points.
     """
     
-    option = "all"
+    option = -1
     if len(sys.argv) > 1:
       option = sys.argv[1]
     
-    points, lats, lons = load_points()
-    labels = run_dbscan(points)
+    points, lats, lons, min_samples = load_points()
+    labels = run_dbscan(points, min_samples)
     
     if option == -1 or option == "snapshot":
       # plot normal snapshot grid
@@ -247,7 +259,7 @@ def main():
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
-    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}')
+    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}  | min_samples: {min_samples}')
 
 
 if __name__ == "__main__":
