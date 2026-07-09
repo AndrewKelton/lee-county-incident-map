@@ -1,0 +1,42 @@
+name: backend-pipeline CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/pipeline/**'
+      - '.github/workflows/backend-pipeline-ci.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'backend/pipeline/**'
+      - '.github/workflows/backend-pipeline-ci.yml'
+
+concurrency:
+  group: backend-pipeline-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pipeline/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest
