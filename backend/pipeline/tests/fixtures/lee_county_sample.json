@@ -1,0 +1,452 @@
+[
+  {
+    "id": "26-278594",
+    "occuredDate": "2026-05-24 17:57:20.0000000",
+    "nature": "DISTURBANCE",
+    "address": "10240 ANGUS LN",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278594"
+  },
+  {
+    "id": "26-278577",
+    "occuredDate": "2026-05-24 17:35:47.0000000",
+    "nature": "SHOTS FIRED",
+    "address": "1111 EUCLID AVE",
+    "city": "LEHIGH ACRES",
+    "disposition": "10-GONE ON ARRIVAL",
+    "incidentNumber": "26-278577"
+  },
+  {
+    "id": "26-278569",
+    "occuredDate": "2026-05-24 17:27:24.0000000",
+    "nature": "DEATH INVESTIGATION",
+    "address": "8524 VIA LUNGOMARE CIR",
+    "city": "ESTERO",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278569"
+  },
+  {
+    "id": "26-278565",
+    "occuredDate": "2026-05-24 17:25:43.0000000",
+    "nature": "ANIMAL",
+    "address": "26255 COLONY RD",
+    "city": "BONITA SPRINGS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278565"
+  },
+  {
+    "id": "26-278560",
+    "occuredDate": "2026-05-24 17:18:52.0000000",
+    "nature": "ANIMAL",
+    "address": "20124 CAMELLIA CROSSE LN",
+    "city": "ESTERO",
+    "disposition": "11-CONDITION CORRECTED",
+    "incidentNumber": "26-278560"
+  },
+  {
+    "id": "26-278510",
+    "occuredDate": "2026-05-24 16:31:32.0000000",
+    "nature": "DISTURBANCE",
+    "address": "16760 CARMEN AVE",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278510"
+  },
+  {
+    "id": "26-278504",
+    "occuredDate": "2026-05-24 16:26:41.0000000",
+    "nature": "ANIMAL",
+    "address": "91 CARDINAL DR",
+    "city": "NORTH FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278504"
+  },
+  {
+    "id": "26-278496",
+    "occuredDate": "2026-05-24 16:19:35.0000000",
+    "nature": "SHOTS FIRED",
+    "address": "2217 TWIN BROOKS RD",
+    "city": "NORTH FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278496"
+  },
+  {
+    "id": "26-278420",
+    "occuredDate": "2026-05-24 15:10:36.0000000",
+    "nature": "DISTURBANCE",
+    "address": "10140 DEER RUN FARMS RD",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278420"
+  },
+  {
+    "id": "26-278409",
+    "occuredDate": "2026-05-24 15:03:51.0000000",
+    "nature": "HARASSMENT",
+    "address": "8350 HOSPITAL",
+    "city": "ESTERO",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278409"
+  },
+  {
+    "id": "26-278403",
+    "occuredDate": "2026-05-24 14:59:06.0000000",
+    "nature": "DISTURBANCE",
+    "address": "4632 DOUGLAS LN",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278403"
+  },
+  {
+    "id": "26-278361",
+    "occuredDate": "2026-05-24 14:35:07.0000000",
+    "nature": "FRAUD",
+    "address": "1200 BROAD ST W",
+    "city": "LEHIGH ACRES",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278361"
+  },
+  {
+    "id": "26-278340",
+    "occuredDate": "2026-05-24 14:21:30.0000000",
+    "nature": "DISTURBANCE",
+    "address": "860 CAMELLIA DR",
+    "city": "NORTH FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278340"
+  },
+  {
+    "id": "26-278327",
+    "occuredDate": "2026-05-24 14:13:01.0000000",
+    "nature": "ANIMAL LIVESTOCK",
+    "address": "MURANO AT THREE OAKS APARTMENTS, FORT MYERS, FL",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278327"
+  },
+  {
+    "id": "26-278322",
+    "occuredDate": "2026-05-24 14:08:13.0000000",
+    "nature": "DISTURBANCE",
+    "address": "714 WELLINGTON AVE",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278322"
+  },
+  {
+    "id": "26-278321",
+    "occuredDate": "2026-05-24 14:07:47.0000000",
+    "nature": "DISTURBANCE",
+    "address": "1668 I",
+    "city": "FORT MYERS BEACH",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278321"
+  },
+  {
+    "id": "26-278319",
+    "occuredDate": "2026-05-24 14:07:31.0000000",
+    "nature": "HARASSMENT",
+    "address": "13501 STRATFORD PL",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278319"
+  },
+  {
+    "id": "26-278309",
+    "occuredDate": "2026-05-24 14:01:51.0000000",
+    "nature": "ANIMAL LIVESTOCK",
+    "address": "ORIOLE RD / THREE OAKS PKWY",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278309"
+  },
+  {
+    "id": "26-278289",
+    "occuredDate": "2026-05-24 13:39:48.0000000",
+    "nature": "ANIMAL",
+    "address": "MCGREGOR BLVD / PORT COMFORT RD",
+    "city": "FORT MYERS",
+    "disposition": "10-GONE ON ARRIVAL",
+    "incidentNumber": "26-278289"
+  },
+  {
+    "id": "26-278288",
+    "occuredDate": "2026-05-24 13:36:50.0000000",
+    "nature": "DISTURBANCE",
+    "address": "376 SANTA CRUZ ST",
+    "city": "NORTH FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278288"
+  },
+  {
+    "id": "26-278287",
+    "occuredDate": "2026-05-24 13:36:10.0000000",
+    "nature": "ANIMAL",
+    "address": "17200 CAPTIVA DR",
+    "city": "CAPTIVA",
+    "disposition": "11-CONDITION CORRECTED",
+    "incidentNumber": "26-278287"
+  },
+  {
+    "id": "26-278277",
+    "occuredDate": "2026-05-24 13:28:51.0000000",
+    "nature": "DISTURBANCE",
+    "address": "2500 MAIN ST",
+    "city": "FORT MYERS BEACH",
+    "disposition": "15-WRITTEN DOCUMENTATION NON UCR",
+    "incidentNumber": "26-278277"
+  },
+  {
+    "id": "26-278210",
+    "occuredDate": "2026-05-24 12:28:16.0000000",
+    "nature": "BURGLARY - CONV",
+    "address": "2700 16TH ST W",
+    "city": "LEHIGH ACRES",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278210"
+  },
+  {
+    "id": "26-278195",
+    "occuredDate": "2026-05-24 12:15:31.0000000",
+    "nature": "ANIMAL",
+    "address": "STRINGFELLOW RD / AVENUE D",
+    "city": "BOKEELIA",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278195"
+  },
+  {
+    "id": "26-278182",
+    "occuredDate": "2026-05-24 12:06:40.0000000",
+    "nature": "ANIMAL",
+    "address": "18451 COPPERHEAD CT N",
+    "city": "LEHIGH ACRES",
+    "disposition": "15-WRITTEN DOCUMENTATION NON UCR",
+    "incidentNumber": "26-278182"
+  },
+  {
+    "id": "26-278174",
+    "occuredDate": "2026-05-24 12:00:33.0000000",
+    "nature": "DISTURBANCE",
+    "address": "2515 LEE BLVD",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278174"
+  },
+  {
+    "id": "26-278161",
+    "occuredDate": "2026-05-24 11:49:55.0000000",
+    "nature": "DISTURBANCE",
+    "address": "1163 N TAMIAMI TRL",
+    "city": "NORTH FORT MYERS",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278161"
+  },
+  {
+    "id": "26-278157",
+    "occuredDate": "2026-05-24 11:45:38.0000000",
+    "nature": "BURGLARY - RESD",
+    "address": "192 TOWNSEND CT",
+    "city": "LEHIGH ACRES",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278157"
+  },
+  {
+    "id": "26-278152",
+    "occuredDate": "2026-05-24 11:40:29.0000000",
+    "nature": "DOMESTIC DISTURBANCE",
+    "address": "211 STEWART LN",
+    "city": "LEHIGH ACRES",
+    "disposition": "15-WRITTEN DOCUMENTATION NON UCR",
+    "incidentNumber": "26-278152"
+  },
+  {
+    "id": "26-278125",
+    "occuredDate": "2026-05-24 11:18:17.0000000",
+    "nature": "DISTURBANCE",
+    "address": "15165 MCGREGOR BLVD",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278125"
+  },
+  {
+    "id": "26-278118",
+    "occuredDate": "2026-05-24 11:14:22.0000000",
+    "nature": "DISTURBANCE",
+    "address": "1122 NE 39TH TER",
+    "city": "CAPE CORAL",
+    "disposition": "07C-TURNED OVER TO CCPD",
+    "incidentNumber": "26-278118"
+  },
+  {
+    "id": "26-278103",
+    "occuredDate": "2026-05-24 11:03:23.0000000",
+    "nature": "RECOVER GUN",
+    "address": "8350 HOSPITAL",
+    "city": "ESTERO",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278103"
+  },
+  {
+    "id": "26-278079",
+    "occuredDate": "2026-05-24 10:45:21.0000000",
+    "nature": "FRAUD",
+    "address": "12134 GRAND JARDIN",
+    "city": "FORT MYERS",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-278079"
+  },
+  {
+    "id": "26-278044",
+    "occuredDate": "2026-05-24 10:18:03.0000000",
+    "nature": "ANIMAL",
+    "address": "14119 CARIBBEAN BLVD",
+    "city": "FORT MYERS",
+    "disposition": "10-GONE ON ARRIVAL",
+    "incidentNumber": "26-278044"
+  },
+  {
+    "id": "26-278038",
+    "occuredDate": "2026-05-24 10:14:15.0000000",
+    "nature": "ANIMAL",
+    "address": "2700 2ND ST SW",
+    "city": "LEHIGH ACRES",
+    "disposition": "07-TURNED OVER TO OTHER AGENCY",
+    "incidentNumber": "26-278038"
+  },
+  {
+    "id": "26-278028",
+    "occuredDate": "2026-05-24 10:09:29.0000000",
+    "nature": "DISTURBANCE",
+    "address": "2801 8TH ST SW",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278028"
+  },
+  {
+    "id": "26-278020",
+    "occuredDate": "2026-05-24 10:01:18.0000000",
+    "nature": "DISTURBANCE",
+    "address": "211 STEWART LN",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278020"
+  },
+  {
+    "id": "26-278014",
+    "occuredDate": "2026-05-24 09:55:06.0000000",
+    "nature": "ANIMAL",
+    "address": "1191 SW 57TH ST",
+    "city": "CAPE CORAL",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-278014"
+  },
+  {
+    "id": "26-277992",
+    "occuredDate": "2026-05-24 09:37:14.0000000",
+    "nature": "DOMESTIC VIOLENCE",
+    "address": "4112 2ND ST SW",
+    "city": "LEHIGH ACRES",
+    "disposition": "15-WRITTEN DOCUMENTATION NON UCR",
+    "incidentNumber": "26-277992"
+  },
+  {
+    "id": "26-277988",
+    "occuredDate": "2026-05-24 09:35:23.0000000",
+    "nature": "IDENTITY THEFT",
+    "address": "11233 SHADY BLOSSOM DR",
+    "city": "FT MYERS",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-277988"
+  },
+  {
+    "id": "26-277968",
+    "occuredDate": "2026-05-24 09:17:36.0000000",
+    "nature": "ANIMAL",
+    "address": "7292 BARRAGAN RD",
+    "city": "FORT MYERS",
+    "disposition": "08-REPORT TAKEN",
+    "incidentNumber": "26-277968"
+  },
+  {
+    "id": "26-277885",
+    "occuredDate": "2026-05-24 07:30:55.0000000",
+    "nature": "DISTURBANCE",
+    "address": "10170 TIN MAPLE",
+    "city": "ESTERO",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277885"
+  },
+  {
+    "id": "26-277842",
+    "occuredDate": "2026-05-24 06:42:14.0000000",
+    "nature": "DISTURBANCE",
+    "address": "717 KNOX AVE S",
+    "city": "LEHIGH ACRES",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277842"
+  },
+  {
+    "id": "26-277802",
+    "occuredDate": "2026-05-24 05:21:49.0000000",
+    "nature": "DISTURBANCE",
+    "address": "18477 FLAMINGO RD",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277802"
+  },
+  {
+    "id": "26-277799",
+    "occuredDate": "2026-05-24 05:20:43.0000000",
+    "nature": "DISTURBANCE",
+    "address": "15588 RIVERWOOD LN",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277799"
+  },
+  {
+    "id": "26-277785",
+    "occuredDate": "2026-05-24 04:40:16.0000000",
+    "nature": "DISTURBANCE",
+    "address": "9205 SAN CARLOS BLVD",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277785"
+  },
+  {
+    "id": "26-277719",
+    "occuredDate": "2026-05-24 02:49:28.0000000",
+    "nature": "DISTURBANCE",
+    "address": "4891 PALM BEACH BLVD",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277719"
+  },
+  {
+    "id": "26-277690",
+    "occuredDate": "2026-05-24 02:17:06.0000000",
+    "nature": "DISTURBANCE",
+    "address": "9776 BAY HBR",
+    "city": "FORT MYERS",
+    "disposition": "10-GONE ON ARRIVAL",
+    "incidentNumber": "26-277690"
+  },
+  {
+    "id": "26-277662",
+    "occuredDate": "2026-05-24 01:51:36.0000000",
+    "nature": "DISTURBANCE",
+    "address": "3306 21ST ST SW",
+    "city": "LEHIGH ACRES",
+    "disposition": "10-GONE ON ARRIVAL",
+    "incidentNumber": "26-277662"
+  },
+  {
+    "id": "26-277656",
+    "occuredDate": "2026-05-24 01:44:29.0000000",
+    "nature": "DISTURBANCE",
+    "address": "9776 BAY HBR",
+    "city": "FORT MYERS",
+    "disposition": "05-HANDLED BY DEPUTY",
+    "incidentNumber": "26-277656"
+  }
+]
