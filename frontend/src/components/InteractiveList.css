@@ -130,7 +130,7 @@
   transform: scale(1.02);
 }
 .item-selected-border{
-  border: 2px solid orange;
+  border: 2px solid #ca745f;
   background: #444e7c;
 }
 .list-board-item-second {

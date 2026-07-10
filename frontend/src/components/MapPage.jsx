@@ -27,6 +27,7 @@ function MapPage() {
   const [finalList, setFinalList] = useState([]);
   const [finalListUnlocated, setFinalListUnlcated] = useState([]);
   const [locationMove, setLocationMove] = useState(null); //state to get lat, lng when user click on the item
+  const [idPopup, setIdPopup] = useState(null); //state to get the id when user click on incident on the list
   // ── UI State ──────────────────────────────────────────────────────────────────
   const [typePop, setTypePop] = useState(false);
   const [isPulled, setIsPulled] = useState(false); //pull out the interactive list
@@ -115,9 +116,14 @@ function MapPage() {
   function onNatureChange(nature) {
     toggleNature(nature);
   }
-  //Get the lat lon when user click to the incident on the list (call back function)
+  //Get the lat lon when user click on the incident on the list (call back function)
   function getLocation(lat,lon){
     setLocationMove([lat,lon]);
+  }
+  //Get the id when user click on the incident on the list (callback function)
+  function getIncidentID(id){
+    setIdPopup(id);
+    console.log(`popup id is ${idPopup}`);
   }
   return (
     <>
@@ -195,14 +201,14 @@ function MapPage() {
       </header>
 
       <div className="mapWrapper">
-        <Map finalList={finalList} countyCenter={LEE_COUNTY_CENTER} locationMove={locationMove}/>
+        <Map finalList={finalList} countyCenter={LEE_COUNTY_CENTER} locationMove={locationMove} idPopup = {idPopup}/>
       </div>
       <div
         className={
           isPulled ? "list-wrapper pull-right" : "list-wrapper pull-left"
         }
       >
-        <InteractiveList finalList={finalList} finalListUnlocated={finalListUnlocated} getLocation={getLocation}/>
+        <InteractiveList finalList={finalList} finalListUnlocated={finalListUnlocated} getLocation={getLocation} getIncidentID ={getIncidentID}/>
         <div
           className="list-pull"
           onClick={() => {

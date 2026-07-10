@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -17,7 +17,7 @@ import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 
 const iconCache = {};
 //create a custom hook to move the map when user click on the item
-function MoveMap({ selectedLocation, countyCenter }) {
+function MoveMap({ selectedLocation, countyCenter, markerRef, clusterRef }) {
   const map = useMap();
 
   useEffect(() => {
@@ -25,12 +25,19 @@ function MoveMap({ selectedLocation, countyCenter }) {
       map.flyTo([selectedLocation[0], selectedLocation[1]], 18, {
         duration: 1.2,
       });
+      map.once("moveend", () => {
+        console.log("marker ref:", markerRef.current);
+        markerRef.current?.openPopup();
+      });
     }
   }, [selectedLocation]);
+
   return null;
 }
-function Map({ finalList, countyCenter, locationMove }) {
+function Map({ finalList, countyCenter, locationMove, idPopup }) {
   const [leeCounty, setLeeCounty] = useState(null);
+  const markerRef = useRef(null); //useRef to mark the popup id
+  const clusterRef = useRef(null);
   useEffect(() => {
     fetch("/lee-county.json")
       .then((res) => res.json())
@@ -81,7 +88,7 @@ function Map({ finalList, countyCenter, locationMove }) {
     domestic: "#c0392b",
     default: "#7f8c8d",
   };
-
+  //helper function to get the incident color
   function getIncidentColor(type) {
     const lowerType = type.toLowerCase();
     for (const keyword in NATURE_COLORS) {
@@ -126,7 +133,11 @@ function Map({ finalList, countyCenter, locationMove }) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {/*create a custom hook to move the map when user click on the item */}
-      <MoveMap selectedLocation={locationMove} />
+      <MoveMap
+        selectedLocation={locationMove}
+        markerRef={markerRef}
+        clusterRef={clusterRef}
+      />
       {leeCounty && (
         <GeoJSON data={leeCounty} style={{ color: "red", weight: 4 }} />
       )}
@@ -149,14 +160,32 @@ function Map({ finalList, countyCenter, locationMove }) {
           }}
         />
       )}
-      <MarkerClusterGroup>
+      <MarkerClusterGroup disableClusteringAtZoom={16}>
         {finalList.map((incident, index) => (
           <Marker
             key={incident.id}
             position={[incident.lat, incident.lng]}
             icon={createIncidentIcon(incident.nature)}
+            ref={idPopup === incident.id ? markerRef : null}
           >
-            <Popup>incident address {index}</Popup>
+            <Popup>
+              <div className="popup-address">
+                <h3>{incident.address}</h3>
+                <h5>{incident.city}</h5>
+              </div>
+              <div className="popup-line"></div>
+              <div className="popup-content">
+                <h4 className="popup-content-normal">{`Incident Number: ${incident.incidentNumber}`}</h4>
+                <h4 className="popup-content-normal">
+                  Type:
+                  <span
+                    style={{ fontSize: "16px", color: "#ca745f" }}
+                  >{` ${incident.nature}`}</span>
+                </h4>
+                <h4 className="popup-content-normal">{`Disposition: ${incident.disposition}`}</h4>
+                <h4 className="popup-content-normal">{`Date: ${incident.occuredDate.split(".")[0]}`}</h4>
+              </div>
+            </Popup>
           </Marker>
         ))}
       </MarkerClusterGroup>

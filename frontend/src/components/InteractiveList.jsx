@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import "./InteractiveList.css";
-function InteractiveList({ finalList, finalListUnlocated, getLocation }) {
+function InteractiveList({ finalList, finalListUnlocated, getLocation, getIncidentID }) {
   const [isLocated, setIsLocated] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
   const [searchResult, setSearchResult] = useState("");
@@ -108,6 +108,7 @@ function InteractiveList({ finalList, finalListUnlocated, getLocation }) {
                   onClick={() => {
                     setSelectedItem(incident.id);
                     getLocation(incident.lat, incident.lng);
+                    getIncidentID(incident.id);
                   }}
                 >
                   <h2
@@ -138,6 +139,7 @@ function InteractiveList({ finalList, finalListUnlocated, getLocation }) {
                   onClick={() => {
                     setSelectedItem(incident.id);
                     getLocation(incident.lat, incident.lng);
+                    getIncidentID(incident.id);
                   }}
                 >
                   <h2
