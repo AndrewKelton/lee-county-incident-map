@@ -1,38 +1,77 @@
 """
 This module was prepared as a prototype demonstration of the KernDensity class
 of the scikit-learn python package.  It ultimately generates an png image of the 
-KDE algorithm for a set of x-y coordinates.
+KDE algorithm for a set of x-y coordinates from a sample of County incident report data.
 """
 
+import os
+import pandas as pd
 import numpy as np
+from pyproj import Transformer
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import PowerNorm
 from sklearn.neighbors import KernelDensity
 
-# test input data that represents two x-y coordinates on a map
-data_points = np.array([[10.5, 10.5], [20.5, 26.5], [15, 15.2], [12.5, 20.1], [22, 15], [11, 15], [12, 16], [12.4, 18.1], [13.3, 17.4], [13.5, 12.9]])
+#CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
+CSV_PATH = os.path.join(
+    os.path.dirname(__file__), 
+    "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv"
+)
+
+def load_points() -> np.ndarray:
+    """
+    Load N_POINTS incidents from late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv and return a (N, 2)
+    array of projected x/y coordinates suitable for euclidean distance.
+    """
+
+    incidents_df = pd.read_csv(CSV_PATH).dropna(subset=["lat", "lon"])
+    
+    latitude = incidents_df["lat"].to_numpy()
+    longitude = incidents_df["lon"].to_numpy()
+
+    # NAD 1983 StatePlane Florida West FIPS 0902 Feet
+    transformer = Transformer.from_crs("EPSG:4269", "EPSG:2882", always_xy=True)
+    easting, northing = transformer.transform(longitude, latitude)
+
+    points = np.column_stack([easting, northing])
+    
+    return points, latitude, longitude
+
+
+
+# input data based on a sample of x-y coordinates (easting/northing) from County incident data
+data_points, latitude, longitude = load_points()
+easting = data_points[:, 0]
+northing = data_points[:, 1]
 
 # instantiate a KernelDensity class
-kde_obj = KernelDensity(bandwidth=1.0, kernel='gaussian')
+kde_obj = KernelDensity(bandwidth=1500.0, kernel='gaussian')
 
 # fit the kde model to the input data
 kde_model = kde_obj.fit(data_points)
 
-# create a x_len x y_len mesh grid (lattice structure) to represent the corrsponding map coordinates
-x_len = 50
-y_len = 50
-increment = 0.01
-x_coords = np.arange(increment, x_len, increment)
-y_coords = np.arange(increment, y_len, increment)
+# create a mesh grid (lattice structure) to represent the corrsponding map coordinates
+x_min = np.min(easting)
+x_max = np.max(easting)
+y_min = np.min(northing)
+y_max = np.max(northing)
+x_len = x_max - x_min
+y_len = y_max - y_min
+increment = 100
+x_coords = np.arange(x_min, x_max, increment)
+y_coords = np.arange(y_min, y_max, increment)
 xx, yy = np.meshgrid(x_coords, y_coords)
 lattice = np.column_stack([xx.ravel(), yy.ravel()])
 
 # apply the kde model to the mesh grid - output of the kde model is log(density)
 log_density_surface = kde_model.score_samples(lattice)
 
-# reshape the density values to a square grid
-density_grid = np.exp(log_density_surface.reshape(x_coords.shape[0], y_coords.shape[0]))
+print(f'lattice.shape = {lattice.shape}')
+print(f'log_density_surface.shape = {log_density_surface.shape}')
+
+# reshape the density values to a rectangular grid
+density_grid = np.exp(log_density_surface.reshape(y_coords.shape[0], x_coords.shape[0]))
 
 # set a threshold for removing very low density values
 threshold_percentile = np.percentile(density_grid, 1)
@@ -61,7 +100,7 @@ cmap.set_bad(alpha=0)
 im = ax.imshow(
 	density_grid_masked,
 	origin='lower',
-	extent=[0, x_len, 0, y_len],
+	extent=[x_min, x_max, y_min, y_max],
 	cmap=cmap,
 	aspect='equal',
 	interpolation='bilinear',
@@ -76,6 +115,7 @@ ax.set_title('KDE Density Surface')
 
 plt.savefig('density_surface.png', dpi=300, bbox_inches='tight', transparent=True)
 plt.close()
+
 
 
 
