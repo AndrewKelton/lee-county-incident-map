@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Polygon
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
 from shapely.geometry import Point, mapping
 from shapely.ops import unary_union
 from kneed import KneeLocator, find_shape
@@ -23,7 +24,7 @@ RANDOM_SEED = 42          # used only for the random sample so results are repro
 # EPS is in the same units as the projected coordinates (feet for EPSG:2882).
 # 1 degree ≈ 364,566 ft; 1 km ≈ 3,281 ft.
 EPS         = 13123.0       # DBSCAN ε — neighborhood radius (~4 km in feet)
-MIN_SAMPLES = 16            # DBSCAN min_samples
+MIN_SAMPLES = 5            # DBSCAN min_samples
 
 '''
 Level EPS (ft)	min_samples	Rationale
@@ -44,6 +45,20 @@ UNVISITED_COLOR = "#CCCCCC"
 
 
 # ── 1. Data Loading ──────────────────────────────────────────────────────────
+
+def elbow_point_eps(points: np.ndarray):
+  neighbors_model = NearestNeighbors(n_neighbors=MIN_SAMPLES).fit(points)
+  distances, _ = neighbors_model.kneighbors(points)
+  k_distances = np.sort(distances[:, -1])
+  
+  x = np.arange(len(k_distances))
+  
+  kneedle = KneeLocator(x, k_distances, curve='convex', direction='increasing')
+  eps = kneedle.elbow_y
+  
+  print(f'epsilon: {eps}')
+  
+  return eps
 
 def load_points() -> np.ndarray:
     """
@@ -71,32 +86,21 @@ def load_points() -> np.ndarray:
     easting, northing = transformer.transform(longitudes, latitudes)
 
     points = np.column_stack([easting, northing])
-    
-    # lat_mean_rad = np.radians(incidents_df["lat"].mean())
-    # x = (incidents_df["lon"] - incidents_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
-    # y = (incidents_df["lat"] - incidents_df["lat"].mean()) * 111.32
-    # 
-    # points = np.column_stack([x, y])
-    # lats = incidents_df["lat"].to_numpy()
-    # lons = incidents_df["lon"].to_numpy()
-    
-    """kneedle DBSCAN optimum epsilon parameter"""
-    # direction, curve = find_shape(-x, y)
-    # kneedle = KneeLocator(-x, y, curve=curve, direction=direction)
 
-    # min_samples = int(-kneedle.elbow)
-    # print(f"min_samples: {min_samples}")
-    # kneedle.plot_knee()
-    # plt.show()
+    """kneedle DBSCAN optimum epsilon parameter"""
+
+    # try:
+    eps = elbow_point_eps(points)
+    # except:
+    #   eps = EPS
+    min_samples = MIN_SAMPLES
     
-    min_samples=MIN_SAMPLES
-    
-    return points, latitudes, longitudes, min_samples
+    return points, latitudes, longitudes, min_samples, eps
     
 
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
 
-def run_dbscan(points: np.ndarray, min_samples: int) -> np.ndarray:
+def run_dbscan(points: np.ndarray, min_samples: int=MIN_SAMPLES, eps: int=EPS) -> np.ndarray:
     """
     Fit DBSCAN on the point array and return the label array.
 
@@ -106,7 +110,7 @@ def run_dbscan(points: np.ndarray, min_samples: int) -> np.ndarray:
         (labels are integers 0..K-1 for clusters; -1 means noise).
     """
     
-    model = DBSCAN(eps=EPS, min_samples=min_samples)
+    model = DBSCAN(eps=eps, min_samples=min_samples)
     model.fit(points)
     return model.labels_
 
@@ -255,8 +259,8 @@ def main():
     if len(sys.argv) > 1:
       option = sys.argv[1]
     
-    points, lats, lons, min_samples = load_points()
-    labels = run_dbscan(points, min_samples)
+    points, lats, lons, min_samples, eps = load_points()
+    labels = run_dbscan(points, min_samples, eps)
     
     if option == -1 or option == "snapshot":
       # plot normal snapshot grid
@@ -268,7 +272,7 @@ def main():
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
-    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}  | min_samples: {min_samples}')
+    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}  | min_samples: {min_samples} | eps: {eps}')
 
 
 if __name__ == "__main__":
