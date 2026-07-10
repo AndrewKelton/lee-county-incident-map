@@ -10,6 +10,7 @@ from shapely.ops import unary_union
 from kneed import KneeLocator, find_shape
 import folium
 import sys
+from pyproj import Transformer
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Tweak these to change the shape of the demo without touching any logic.
@@ -19,16 +20,16 @@ CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-pap
 N_POINTS = 250           # how many rows to sample from the CSV
 RANDOM_SEED = 42          # used only for the random sample so results are reproducible
 
-# EPS is in the same units as the projected coordinates (see load_points).
-# After mean-centering and scaling to ~km, a value around 0.3–0.8 is a good start.
-EPS         = 4.0           # DBSCAN ε — neighborhood radius
-MIN_SAMPLES = 20            # DBSCAN min_samples
+# EPS is in the same units as the projected coordinates (feet for EPSG:2882).
+# 1 degree ≈ 364,566 ft; 1 km ≈ 3,281 ft.
+EPS         = 13123.0       # DBSCAN ε — neighborhood radius (~4 km in feet)
+MIN_SAMPLES = 16            # DBSCAN min_samples
 
 '''
-Level EPS (km)	min_samples	Rationale
-Street	0.365	3	~365m radius — one or two block faces
-Neighborhood	0.9	6	~900m radius — walkable neighborhood scale
-District	4.0	20	~4km radius — city district / county zone
+Level EPS (ft)	min_samples	Rationale
+Street	1200	3	~365m radius — one or two block faces
+Neighborhood	2953	6	~900m radius — walkable neighborhood scale
+District	13123	20	~4km radius — city district / county zone
 '''
 
 SNAPSHOT_OUT     = "output/dbscan_snapshot.png"
@@ -54,22 +55,30 @@ def load_points() -> np.ndarray:
         not null (mirrors the idx_incidents_location index filter).
       - Sample N_POINTS rows with random_state=RANDOM_SEED so the demo
         is reproducible but draws from real data.
-      - Project from WGS84 to a local flat coordinate system:
-          x = (lon - lon.mean()) * cos(lat_mean_radians) * 111.32   # km
-          y = (lat - lat.mean()) * 111.32                           # km
-        This gives axes in kilometres centred at (0, 0) with roughly
-        equal x/y scale — appropriate for a small county-level extent.
-      - Return np.column_stack([x, y]) as a float64 array.
+      - Project from NAD83 geographic (EPSG:4269) to NAD 1983 StatePlane
+        Florida West FIPS 0902 (EPSG:2882) using pyproj. Coordinates are
+        in US Survey Feet with equal x/y scale — appropriate for county-level
+        DBSCAN where EPS is expressed in feet.
+      - Return np.column_stack([easting, northing]) as a float64 array.
     """
     incidents_df = pd.read_csv(CSV_PATH).dropna(subset=["lat", "lon"])
+
+    latitudes = incidents_df["lat"].to_numpy()
+    longitudes = incidents_df["lon"].to_numpy()
+
+    # NAD 1983 StatePlane Florida West FIPS 0902 Feet
+    transformer = Transformer.from_crs("EPSG:4269", "EPSG:2882", always_xy=True)
+    easting, northing = transformer.transform(longitudes, latitudes)
+
+    points = np.column_stack([easting, northing])
     
-    lat_mean_rad = np.radians(incidents_df["lat"].mean())
-    x = (incidents_df["lon"] - incidents_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
-    y = (incidents_df["lat"] - incidents_df["lat"].mean()) * 111.32
-    
-    points = np.column_stack([x, y])
-    lats = incidents_df["lat"].to_numpy()
-    lons = incidents_df["lon"].to_numpy()
+    # lat_mean_rad = np.radians(incidents_df["lat"].mean())
+    # x = (incidents_df["lon"] - incidents_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
+    # y = (incidents_df["lat"] - incidents_df["lat"].mean()) * 111.32
+    # 
+    # points = np.column_stack([x, y])
+    # lats = incidents_df["lat"].to_numpy()
+    # lons = incidents_df["lon"].to_numpy()
     
     """kneedle DBSCAN optimum epsilon parameter"""
     # direction, curve = find_shape(-x, y)
@@ -82,7 +91,7 @@ def load_points() -> np.ndarray:
     
     min_samples=MIN_SAMPLES
     
-    return points, lats, lons, min_samples
+    return points, latitudes, longitudes, min_samples
     
 
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
@@ -210,7 +219,7 @@ def plot_folium_map(lats: np.ndarray, lons: np.ndarray, labels: np.ndarray) -> N
         tooltip=tooltip,
       ).add_to(m)
 
-    eps_deg = EPS / 111.32
+    eps_deg = EPS / 364566.9  # convert feet → degrees (1 deg ≈ 364,566 ft)
     for label in sorted(set(labels) - {-1}):
       mask = labels == label
       color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
