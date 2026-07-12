@@ -12,6 +12,10 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import PowerNorm
 from sklearn.neighbors import KernelDensity
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.transform import from_origin
+import folium
 
 #CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
 CSV_PATH = os.path.join(
@@ -117,7 +121,68 @@ plt.savefig('density_surface.png', dpi=300, bbox_inches='tight', transparent=Tru
 plt.close()
 
 
+# transform from pixel coordinates to real-world spatial coordinates
+transform_src = from_origin(x_min, y_max, increment, increment)
 
+src_meta = {
+    "driver": "GTiff",
+    "height": density_grid_masked.shape[0],
+    "width": density_grid_masked.shape[1],
+    "count": 1,
+    "dtype": "float32",
+    "crs": "EPSG:2882",
+    "transform": transform_src
+}
+
+# create tif file with the masked density surface values and coordinates
+with rasterio.open("density_src.tif", "w", **src_meta) as dst:
+    dst.write(np.flipud(density_grid_masked.filled(0)).astype("float32"), 1)
+
+# re-project the tif file into latitude/longitude coordinate system
+with rasterio.open("density_src.tif") as src:
+    dst_transform, width, height = calculate_default_transform(
+        src.crs, "EPSG:4326", src.width, src.height, *src.bounds
+    )
+    dst_meta = src.meta.copy()
+    dst_meta.update({
+        "crs": "EPSG:4326",
+        "transform": dst_transform,
+        "width": width,
+        "height": height,
+    })
+
+    with rasterio.open("density_wgs84.tif", "w", **dst_meta) as dst:
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=rasterio.band(dst, 1),
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=dst_transform,
+            dst_crs="EPSG:4326",
+            resampling=Resampling.bilinear,
+        )
+
+# retrieve the pixel values and min/max boundary coordinates from the tif file
+with rasterio.open("density_wgs84.tif") as src:
+    warped = src.read(1)
+    bounds = src.bounds  # left, bottom, right, top in lat/lon
+
+# normalization object that maps data values from 0 to 1 range
+norm = PowerNorm(gamma=0.5)(warped)
+# apply color-coding from png file to the latitude/longitude re-projection
+rgba = cmap(norm)
+
+# create a map centered on the boundaries of the density surface values
+m = folium.Map(location=[(bounds.top + bounds.bottom)/2, (bounds.left + bounds.right)/2], zoom_start=12)
+
+# lay the colorized image of the lat/long re-projected tif file onto the map
+folium.raster_layers.ImageOverlay(
+    image=rgba,
+    bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+    opacity=0.8,
+).add_to(m)
+
+m.save("heatmap.html")
 
 
 
