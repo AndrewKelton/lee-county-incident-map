@@ -36,18 +36,19 @@ uv run alembic upgrade head
 
 ## Adopting the production baseline
 
-Revision `0001` represents the three tables and eight
-indexes that already exist in production on July 12, 2026.
-
-For an existing database whose schema has first been verified against the
-baseline, record ownership without executing the baseline DDL:
+Revision `0001` is the schema production already had on July 12, 2026.
+Production was adopted on July 13, 2026 and now runs migrations normally.
 
 ```bash
 uv run alembic stamp 0001
+uv run alembic upgrade head
 uv run alembic current --check-heads
 ```
 
-For an empty database, execute the migration normally:
+`stamp 0001` leaves the database at `0001`, so `--check-heads` only passes after
+the upgrade.
+
+For an empty database, skip the stamp:
 
 ```bash
 uv run alembic upgrade head
