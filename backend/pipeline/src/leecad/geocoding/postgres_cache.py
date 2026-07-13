@@ -2,22 +2,18 @@ import threading
 import psycopg
 
 from leecad.geocoding.base import GeocodeCache
+from leecad.postgres_schema import require_tables
 
 
 class PostgresCache(GeocodeCache):
     def __init__(self, conn_string: str):
         self.conn = psycopg.connect(conn_string, autocommit=True)
         self._lock = threading.Lock()
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS geocode_cache (
-                    key       TEXT PRIMARY KEY,
-                    lat       DOUBLE PRECISION NOT NULL,
-                    lon       DOUBLE PRECISION NOT NULL,
-                    quality   TEXT,
-                    cached_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-            """)
+        try:
+            require_tables(self.conn, {"geocode_cache"})
+        except Exception:
+            self.conn.close()
+            raise
 
     def get(self, key):
         with self._lock:

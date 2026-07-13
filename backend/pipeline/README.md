@@ -63,6 +63,11 @@ Runtime SQLite DBs and worker outboxes live under `data/` (git-ignored); the cra
 
 Requires [uv](https://github.com/astral-sh/uv) and Python 3.12+. With `DATABASE_URL` unset everything uses a local SQLite DB under `data/`; set it to a Postgres connection string to use Neon instead.
 
+PostgreSQL schema changes are owned by Alembic under `../database`. The pipeline
+checks that its required tables exist but doesn't create or alter PostgreSQL
+objects at startup. Apply the database migrations before pointing the pipeline
+at a new PostgreSQL database.
+
 ```bash
 uv sync
 
@@ -90,7 +95,7 @@ The live API exposes only the ~1,000 most-recent records with no pagination, so 
 
 ```bash
 # Once, by whoever seeds the queue (seed list is committed at data/seeds/):
-uv run leecad crawl init                    # creates schema + seeds the full street list
+uv run leecad crawl init                    # verifies migrated schema + seeds the full street list
 
 # Each collaborator, on their own machine/IP — both sync to Neon hourly:
 uv run leecad crawl work    <worker_id>     # harvest
