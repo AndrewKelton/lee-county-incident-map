@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DBSCAN Cluster Lab — Lee County</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────────────────── */
+    #top-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      padding: 0.6rem 1.2rem;
+      background: rgba(15, 15, 30, 0.95);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      flex-wrap: wrap;
+    }
+
+    #branding { line-height: 1.3; }
+    #branding strong { font-size: 1rem; color: #fff; }
+    #branding span   { display: block; font-size: 0.72rem; color: #888; }
+
+    /* ── Sliders ──────────────────────────────────────────────────────────── */
+    #controls {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .param-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .param-row label {
+      font-size: 0.75rem;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    .param-row label span {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      width: 180px;
+      accent-color: #2A9D8F;
+      cursor: pointer;
+    }
+
+    /* ── Stats ────────────────────────────────────────────────────────────── */
+    #stats {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      font-size: 0.8rem;
+      color: #aaa;
+      flex-wrap: wrap;
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4px;
+      padding: 0.2rem 0.55rem;
+      white-space: nowrap;
+    }
+
+    .stat-pill span { color: #fff; font-weight: 600; }
+
+    #status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #555;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    #status-dot.loading  { background: #E9C46A; }
+    #status-dot.ready    { background: #2A9D8F; }
+    #status-dot.error    { background: #E63946; }
+
+    /* ── Map ──────────────────────────────────────────────────────────────── */
+    #map { flex: 1; }
+
+    /* ── Legend ───────────────────────────────────────────────────────────── */
+    .cluster-legend {
+      background: rgba(15, 15, 30, 0.9);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      color: #eee;
+      line-height: 1.8;
+    }
+    .legend-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+<div id="top-bar">
+  <div id="branding">
+    <strong>DBSCAN Cluster Lab</strong>
+    <span>Lee County Incidents — dev prototype</span>
+  </div>
+
+  <div id="controls">
+    <div class="param-row">
+      <label>
+        Epsilon (radius): <span id="eps-val">13,123 ft (2.49 mi)</span>
+      </label>
+      <input type="range" id="eps-slider"
+             min="500" max="20000" step="100" value="13123" />
+    </div>
+
+    <div class="param-row">
+      <label>
+        Min points: <span id="min-pts-val">20</span>
+      </label>
+      <input type="range" id="min-pts-slider"
+             min="2" max="50" step="1" value="20" />
+    </div>
+  </div>
+
+  <div id="stats">
+    <div id="status-dot"></div>
+    <div class="stat-pill">Clusters: <span id="stat-clusters">—</span></div>
+    <div class="stat-pill">Noise pts: <span id="stat-noise">—</span></div>
+    <div class="stat-pill">Total pts: <span id="stat-total">—</span></div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  const API = "";  // same-origin when served by Flask at /cluster-lab
+
+  const LEE_COUNTY_CENTER = [26.56, -81.87];
+  const DEFAULT_ZOOM = 11;
+
+  // Map setup
+  const map = L.map("map").setView(LEE_COUNTY_CENTER, DEFAULT_ZOOM);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // State 
+  let clusterLayer = null;
+  let legendControl = null;
+  let debounceTimer = null;
+
+  // Helpers 
+  function feetToMiles(ft) { return (ft / 5280).toFixed(2); }
+
+  function formatFeet(ft) {
+    return `${Number(ft).toLocaleString()} ft (${feetToMiles(ft)} mi)`;
+  }
+
+  function setStatus(state) {
+    const dot = document.getElementById("status-dot");
+    dot.className = "";
+    if (state) dot.classList.add(state);
+  }
+
+  function updateStats(meta) {
+    document.getElementById("stat-clusters").textContent =
+      meta ? meta.n_clusters : "—";
+    document.getElementById("stat-noise").textContent =
+      meta ? meta.n_noise : "—";
+    document.getElementById("stat-total").textContent =
+      meta ? meta.n_total : "—";
+  }
+
+  // Legend
+  function buildLegend(features) {
+    if (legendControl) { legendControl.remove(); legendControl = null; }
+    if (!features.length) return;
+
+    legendControl = L.control({ position: "bottomright" });
+    legendControl.onAdd = () => {
+      const div = L.DomUtil.create("div", "cluster-legend");
+      div.innerHTML = features
+        .map(f =>
+          `<div><span class="legend-swatch" style="background:${f.properties.color}"></span>` +
+          `Cluster ${f.properties.cluster_id} — ${f.properties.point_count} pts</div>`
+        )
+        .join("");
+      return div;
+    };
+    legendControl.addTo(map);
+  }
+
+  // Cluster rendering
+  function renderClusters(geojson) {
+    if (clusterLayer) { map.removeLayer(clusterLayer); clusterLayer = null; }
+
+    const polygons = geojson.features.filter(f => f.properties.feature_type === "polygon");
+    const pts      = geojson.features.filter(f => f.properties.feature_type === "point");
+
+    clusterLayer = L.layerGroup();
+
+    // Polygons first (drawn beneath points)
+    L.geoJSON({ type: "FeatureCollection", features: polygons }, {
+      style: feature => ({
+        fillColor: feature.properties.color,
+        color: feature.properties.color,
+        fillOpacity: 0.18,
+        weight: 1.5,
+        opacity: 0.8,
+      }),
+      onEachFeature: (feature, layer) => {
+        layer.bindTooltip(
+          `Cluster ${feature.properties.cluster_id} — ${feature.properties.point_count} incidents`,
+          { sticky: true }
+        );
+      },
+    }).addTo(clusterLayer);
+
+    // Points on top
+    L.geoJSON({ type: "FeatureCollection", features: pts }, {
+      pointToLayer: (feature, latlng) =>
+        L.circleMarker(latlng, {
+          radius: feature.properties.cluster_id === -1 ? 3 : 5,
+          fillColor: feature.properties.color,
+          color: "#fff",
+          weight: 0.5,
+          fillOpacity: feature.properties.cluster_id === -1 ? 0.4 : 0.85,
+        }),
+      onEachFeature: (feature, layer) => {
+        const label = feature.properties.cluster_id === -1
+          ? "Noise"
+          : `Cluster ${feature.properties.cluster_id}`;
+        layer.bindTooltip(label, { sticky: true });
+      },
+    }).addTo(clusterLayer);
+
+    clusterLayer.addTo(map);
+    buildLegend(polygons);
+  }
+
+  // Fetch clusters from backend
+  async function fetchClusters() {
+    const eps    = document.getElementById("eps-slider").value;
+    const minPts = document.getElementById("min-pts-slider").value;
+
+    setStatus("loading");
+    try {
+      const res = await fetch(`${API}/api/clusters?eps=${eps}&min_pts=${minPts}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      renderClusters(data);
+      updateStats(data.metadata);
+      setStatus("ready");
+    } catch (err) {
+      console.error("Cluster fetch failed:", err);
+      setStatus("error");
+      updateStats(null);
+    }
+  }
+
+  function scheduleFetch() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(fetchClusters, 400);
+  }
+
+  // Slider event wiring 
+  const epsSlider   = document.getElementById("eps-slider");
+  const minPtsSlider = document.getElementById("min-pts-slider");
+
+  epsSlider.addEventListener("input", () => {
+    document.getElementById("eps-val").textContent = formatFeet(epsSlider.value);
+    scheduleFetch();
+  });
+
+  minPtsSlider.addEventListener("input", () => {
+    document.getElementById("min-pts-val").textContent = minPtsSlider.value;
+    scheduleFetch();
+  });
+
+  // boot
+  fetchClusters();
+})();
+</script>
+</body>
+</html>
