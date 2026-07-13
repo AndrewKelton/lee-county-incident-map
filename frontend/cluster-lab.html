@@ -129,18 +129,14 @@
   <div id="controls">
     <div class="param-row">
       <label>
-        Epsilon (radius): <span id="eps-val">13,123 ft (2.49 mi)</span>
+        Cluster Density: <span id="density-label">Balanced</span>
       </label>
-      <input type="range" id="eps-slider"
-             min="500" max="20000" step="100" value="13123" />
-    </div>
-
-    <div class="param-row">
-      <label>
-        Min points: <span id="min-pts-val">20</span>
-      </label>
-      <input type="range" id="min-pts-slider"
-             min="2" max="50" step="1" value="20" />
+      <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.72rem; color:#888;">
+        <span>Less Dense</span>
+        <input type="range" id="density-slider"
+               min="0" max="100" step="1" value="33" />
+        <span>More Dense</span>
+      </div>
     </div>
   </div>
 
@@ -175,13 +171,7 @@
   let legendControl = null;
   let debounceTimer = null;
 
-  // Helpers 
-  function feetToMiles(ft) { return (ft / 5280).toFixed(2); }
-
-  function formatFeet(ft) {
-    return `${Number(ft).toLocaleString()} ft (${feetToMiles(ft)} mi)`;
-  }
-
+  // Helpers
   function setStatus(state) {
     const dot = document.getElementById("status-dot");
     dot.className = "";
@@ -264,10 +254,32 @@
     buildLegend(polygons);
   }
 
+  // Density slider → DBSCAN parameters
+  // 0 (Less Dense): eps=26000 ft, min_pts=5  — few large clusters
+  // 100 (More Dense): eps=6500 ft, min_pts=40 — many tight clusters
+  const EPS_LO = 26000, EPS_HI = 2600;
+  const PTS_LO = 5,     PTS_HI = 20;
+
+  function densityToParams(s) {
+    const t = s / 100;
+    return {
+      eps:    Math.round(EPS_LO + (EPS_HI - EPS_LO) * t),
+      minPts: Math.round(PTS_LO + (PTS_HI - PTS_LO) * t),
+    };
+  }
+
+  function densityLabel(s) {
+    if (s <= 20)  return "Less Dense";
+    if (s <= 40)  return "Slightly Less Dense";
+    if (s <= 60)  return "Balanced";
+    if (s <= 80)  return "Slightly More Dense";
+    return "More Dense";
+  }
+
   // Fetch clusters from backend
   async function fetchClusters() {
-    const eps    = document.getElementById("eps-slider").value;
-    const minPts = document.getElementById("min-pts-slider").value;
+    const s = Number(document.getElementById("density-slider").value);
+    const { eps, minPts } = densityToParams(s);
 
     setStatus("loading");
     try {
@@ -290,17 +302,11 @@
     debounceTimer = setTimeout(fetchClusters, 400);
   }
 
-  // Slider event wiring 
-  const epsSlider   = document.getElementById("eps-slider");
-  const minPtsSlider = document.getElementById("min-pts-slider");
+  // Slider event wiring
+  const densitySlider = document.getElementById("density-slider");
 
-  epsSlider.addEventListener("input", () => {
-    document.getElementById("eps-val").textContent = formatFeet(epsSlider.value);
-    scheduleFetch();
-  });
-
-  minPtsSlider.addEventListener("input", () => {
-    document.getElementById("min-pts-val").textContent = minPtsSlider.value;
+  densitySlider.addEventListener("input", () => {
+    document.getElementById("density-label").textContent = densityLabel(Number(densitySlider.value));
     scheduleFetch();
   });
 
