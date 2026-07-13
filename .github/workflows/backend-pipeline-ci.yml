@@ -40,3 +40,32 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+  lambda-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pipeline/uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked
+
+      - name: Build Lambda artifact
+        run: ./infra/lambda/build.sh
+
+      - name: Verify Lambda artifact and handlers
+        run: |
+          test -s build/lambda.zip
+          unzip -tq build/lambda.zip
+          rm -rf /tmp/leecad-lambda-smoke
+          unzip -q build/lambda.zip -d /tmp/leecad-lambda-smoke
+          cd /tmp/leecad-lambda-smoke
+          PYTHONPATH="$PWD" "$GITHUB_WORKSPACE/backend/pipeline/.venv/bin/python" -c \
+            'import lambda_function; assert all(callable(getattr(lambda_function, name)) for name in ("fetch_handler", "flush_handler", "handler"))'
