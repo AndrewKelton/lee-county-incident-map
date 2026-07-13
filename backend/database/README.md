@@ -7,6 +7,25 @@ cd backend/database
 uv sync
 ```
 
+## Local PostGIS database
+
+Docker Desktop or Docker Engine with Compose is required. Start PostgreSQL 18
+with PostGIS 3.6 and apply every migration with one command:
+
+```bash
+cd backend/database
+./local-db.sh up
+```
+
+The database listens on `localhost:5433`. Defaults are in
+`.env.example`.
+
+Stop the container without deleting its data:
+
+```bash
+./local-db.sh down
+```
+
 Use a direct PostgreSQL connection. Pooled Neon URLs are rejected:
 
 ```bash
