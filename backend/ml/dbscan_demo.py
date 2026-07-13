@@ -24,7 +24,7 @@ RANDOM_SEED = 42          # used only for the random sample so results are repro
 # EPS is in the same units as the projected coordinates (feet for EPSG:2882).
 # 1 degree ≈ 364,566 ft; 1 km ≈ 3,281 ft.
 EPS         = 13123.0       # DBSCAN ε — neighborhood radius (~4 km in feet)
-MIN_SAMPLES = 5            # DBSCAN min_samples
+MIN_SAMPLES = 20            # DBSCAN min_samples
 
 '''
 Level EPS (ft)	min_samples	Rationale
@@ -87,12 +87,8 @@ def load_points() -> np.ndarray:
 
     points = np.column_stack([easting, northing])
 
-    """kneedle DBSCAN optimum epsilon parameter"""
-
-    # try:
-    eps = elbow_point_eps(points)
-    # except:
-    #   eps = EPS
+    # eps = elbow_point_eps(points)
+    eps = EPS
     min_samples = MIN_SAMPLES
     
     return points, latitudes, longitudes, min_samples, eps
