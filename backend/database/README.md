@@ -35,3 +35,9 @@ uv run alembic upgrade head
 ```
 
 Don't run `stamp` to bypass a failed migration. Stamping is only for a database that already matches revision `0001`.
+
+## Migration verification
+
+Database CI applies every migration to an empty PostgreSQL 18 database, rolls the
+whole chain back, and applies it again. The second upgrade fails if a downgrade
+left anything behind.
