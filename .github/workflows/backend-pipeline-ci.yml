@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'backend/pipeline/**'
+      - 'backend/database/**'
       - '.github/workflows/backend-pipeline-ci.yml'
   push:
     branches: [dev, main]
     paths:
       - 'backend/pipeline/**'
+      - 'backend/database/**'
       - '.github/workflows/backend-pipeline-ci.yml'
 
 concurrency:
@@ -19,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint-and-unit:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,7 +41,52 @@ jobs:
         run: uv run ruff check .
 
       - name: Test
-        run: uv run pytest
+        run: uv run pytest -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Same image as backend/database/compose.yaml; the migrations will need PostGIS.
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_DB: leecad
+          POSTGRES_USER: leecad
+          POSTGRES_PASSWORD: leecad-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U leecad -d leecad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The only coupling between the two projects: a URL, never an import.
+      ALEMBIC_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
+      TEST_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/*/uv.lock
+
+      - name: Install database dependencies
+        working-directory: backend/database
+        run: uv sync --locked
+
+      - name: Apply migrations
+        working-directory: backend/database
+        run: uv run alembic upgrade head
+
+      - name: Install pipeline dependencies
+        working-directory: backend/pipeline
+        run: uv sync --locked
+
+      - name: Integration tests
+        working-directory: backend/pipeline
+        run: uv run pytest -m integration
 
   lambda-build:
     runs-on: ubuntu-latest
