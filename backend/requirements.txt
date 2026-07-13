@@ -8,3 +8,6 @@ folium
 shapely
 kneed
 pyproj
+scikit-learn
+numpy
+pandas
