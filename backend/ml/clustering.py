@@ -57,13 +57,21 @@ def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
     points = np.column_stack([easting, northing])
 
     labels = DBSCAN(eps=eps, min_samples=min_pts).fit(points).labels_
+    
+    # Get noise points
+    noise_mask = labels == -1
+    noise_points = [
+        {"lat": float(lats[i]), "lng": float(lons[i])}
+        for i in range(len(labels))
+        if noise_mask[i]
+    ]
 
     # Back-projector: projected feet → WGS84 lon/lat for GeoJSON
     to_wgs84 = Transformer.from_crs("EPSG:2882", "EPSG:4326", always_xy=True)
 
     NOISE_COLOR = "#AAAAAA"
 
-    # ── Point features (one per incident) ─────────────────────────────────
+    # Point features (one per incident) 
     point_features = []
     for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
         color = NOISE_COLOR if label == -1 else CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
@@ -77,7 +85,7 @@ def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
             },
         })
 
-    # ── Polygon features (one per cluster) ────────────────────────────────
+    # Polygon features (one per cluster) 
     polygon_features = []
     for label in sorted(set(labels) - {-1}):
         mask = labels == label
@@ -108,4 +116,5 @@ def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
             "eps": eps,
             "min_pts": min_pts,
         },
+        "noise_points": noise_points,
     }
