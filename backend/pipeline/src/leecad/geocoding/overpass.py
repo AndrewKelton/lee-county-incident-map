@@ -7,7 +7,7 @@ import threading
 
 from leecad.config import USER_AGENT
 
-LEE_COUNTY_BBOX = (26.32, -82.30, 26.85, -81.55)  # (south, west, north, east)
+LEE_COUNTY_BBOX = (26.27, -82.35, 26.90, -81.50)
 
 _STREET_TYPES = {
     "AVE": "Avenue", "BLVD": "Boulevard", "ST": "Street", "RD": "Road",
