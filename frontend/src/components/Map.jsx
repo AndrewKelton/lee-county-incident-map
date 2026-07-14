@@ -9,6 +9,8 @@ import {
   Polygon,
   CircleMarker,
 } from "react-leaflet";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import "leaflet-geosearch/dist/geosearch.css";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import MarkerClusterGroup from "react-leaflet-cluster";
@@ -17,7 +19,7 @@ import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 
 const iconCache = {};
 //create a custom hook to move the map when user click on the item
-function MoveMap({ selectedLocation, countyCenter, markerRef, clusterRef }) {
+function MoveMap({ selectedLocation, countyCenter, markerRef }) {
   const map = useMap();
 
   useEffect(() => {
@@ -34,10 +36,22 @@ function MoveMap({ selectedLocation, countyCenter, markerRef, clusterRef }) {
 
   return null;
 }
+//custom hook for the search function
+function SearchAddress() {
+  const map = useMap();
+  useEffect(() => {
+    const search = new GeoSearchControl({
+      provider: new OpenStreetMapProvider(),
+    });
+    map.addControl(search);
+    return () => map.removeControl(search);
+  }, [map]);
+  return null;
+}
 function Map({ finalList, countyCenter, locationMove, idPopup }) {
   const [leeCounty, setLeeCounty] = useState(null);
   const markerRef = useRef(null); //useRef to mark the popup id
-  const clusterRef = useRef(null);
+
   useEffect(() => {
     fetch("/lee-county.json")
       .then((res) => res.json())
@@ -133,14 +147,14 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {/*create a custom hook to move the map when user click on the item */}
-      <MoveMap
-        selectedLocation={locationMove}
-        markerRef={markerRef}
-        clusterRef={clusterRef}
-      />
+      <MoveMap selectedLocation={locationMove} markerRef={markerRef} />
       {leeCounty && (
         <GeoJSON data={leeCounty} style={{ color: "red", weight: 4 }} />
       )}
+      <div className="search-wrapper">
+        <SearchAddress />
+      </div>
+
       {leeCounty && (
         <Polygon
           positions={[

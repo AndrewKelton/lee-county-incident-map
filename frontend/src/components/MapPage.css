@@ -348,3 +348,45 @@ body {
   transform: translateX(-500px);
   transition: 0.5s;
 }
+
+/* ── ADDRESS SEARCH BAR ───────────────────────────────────────────────────────────────────── */
+.leaflet-control-geosearch .glass {
+  width: 370px;
+  padding: 10px 10px;
+  font-size: 18px;
+  border-radius: 8px;
+}
+.leaflet-control-geosearch form{
+  position: inherit !important;
+  max-width: 380px !important;
+  background: red;
+  padding: 0 !important;
+  top: 0 !important;
+  left: 50% !important;
+  transform: translateX(100%) !important;
+  border-radius: 4px !important;
+  padding: 5px !important;
+  border: 2px solid #525050;
+}
+.leaflet-control-geosearch button.reset{
+  padding: 2.5px 0px !important;
+  border-radius: 2px !important;
+  width: 40px;
+  left: 336px;
+  top: 0;
+  font-size: 20px !important;
+  font-weight: normal !important;
+  
+}
+.leaflet-control-geosearch .results {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  color: black;
+}
+.search-wrapper{
+  width: 100%;
+  color: red;
+  height: 30px;
+  position: absolute;
+}
