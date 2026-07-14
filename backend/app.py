@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from cache import get_incidents  # noqa: E402 — imported after env load
-from ml.clustering import run_clusters, load_csv_incidents  # noqa: E402
+from ml.clustering import run_clusters, load_csv_incidents, cluster_levels  # noqa: E402
 
 app = Flask(__name__)
 
@@ -18,7 +18,6 @@ CORS(app, resources={r"/api/*": {"origins": allowed_origin}})
 def cluster_lab():
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
     return send_from_directory(frontend_dir, "cluster-lab.html")
-
 
 @app.route("/api/incidents")
 def incidents():
@@ -37,9 +36,24 @@ def clusters():
     eps = max(500.0, min(50000.0, eps))
     min_pts = max(2, min(100, min_pts))
 
+    level = request.args.get("level")
+    cluster_color = cluster_levels[level]["color"] if level in cluster_levels else None
+
     data = load_csv_incidents()
-    result = run_clusters(data, eps, min_pts)
+    result = run_clusters(data, eps, min_pts, cluster_color=cluster_color)
     return jsonify(result)
+
+
+@app.route("/api/clusters/multi")
+def clusters_multi():
+    data = load_csv_incidents()
+    
+    all_results = {}
+    for level, settings in cluster_levels.items():
+        result = run_clusters(incidents=data, eps=settings["epsilon"], min_pts=settings["min_pts"], cluster_color=settings.get("color"))
+        all_results[level] = result
+        
+    return jsonify(all_results)
 
 
 @app.route("/api/health")
