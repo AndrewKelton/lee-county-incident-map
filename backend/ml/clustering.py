@@ -8,6 +8,22 @@ from pyproj import Transformer
 
 CLUSTER_COLORS = ["#E63946", "#2A9D8F", "#E9C46A", "#457B9D", "#F4A261"]
 
+cluster_levels = {
+    "street": {
+        "epsilon": 1300,
+        "min_pts": 3,
+        "color": "#E63946"
+    }, "neighborhood": {
+        "epsilon": 3000,
+        "min_pts": 13,
+        "color": "#243092"
+    }, "district": {
+        "epsilon": 13000,
+        "min_pts": 30,
+        "color": "#0E6207"
+    }
+}
+
 _CSV_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "data",
     "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv",
@@ -21,7 +37,7 @@ def load_csv_incidents() -> list:
     return df[["lat", "lon"]].rename(columns={"lon": "lng"}).to_dict(orient="records")
 
 
-def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
+def run_clusters(incidents: list, eps: float, min_pts: int, cluster_color: str = None) -> dict:
     """
     Run DBSCAN on geocoded incidents and return a GeoJSON FeatureCollection.
 
@@ -74,7 +90,12 @@ def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
     # Point features (one per incident) 
     point_features = []
     for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
-        color = NOISE_COLOR if label == -1 else CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+        if label == -1:
+            color = NOISE_COLOR
+        elif cluster_color is not None:
+            color = cluster_color
+        else:
+            color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
         point_features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
@@ -89,7 +110,7 @@ def run_clusters(incidents: list, eps: float, min_pts: int) -> dict:
     polygon_features = []
     for label in sorted(set(labels) - {-1}):
         mask = labels == label
-        color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+        color = cluster_color if cluster_color is not None else CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
 
         cluster_pts = points[mask]
         union = unary_union([Point(p).buffer(eps) for p in cluster_pts])
