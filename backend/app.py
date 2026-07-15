@@ -29,12 +29,12 @@ def incidents():
 def clusters():
     try:
         eps = float(request.args.get("eps", 13123.0))
-        min_pts = int(request.args.get("min_pts", 20))
+    #     min_pts = int(request.args.get("min_pts", 20))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid parameters"}), 400
 
-    eps = max(500.0, min(50000.0, eps))
-    min_pts = max(2, min(100, min_pts))
+    # eps = 4 # max(500.0, min(50000.0, eps))
+    min_pts = 4 # max(2, min(100, min_pts))
 
     level = request.args.get("level")
     cluster_color = cluster_levels[level]["color"] if level in cluster_levels else None
