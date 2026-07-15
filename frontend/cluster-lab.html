@@ -402,8 +402,11 @@
   function levelToParams(level, sliderVal) {
     const t = sliderVal / 100;
     const p = LEVEL_PRESETS[level];
+    // Log scale for eps: gives perceptually uniform spacing across the radius range
+    // At t=0 (Sparse) → epsMax; at t=1 (Dense) → epsMin
+    const eps = Math.round(Math.exp(Math.log(p.epsMax) + (Math.log(p.epsMin) - Math.log(p.epsMax)) * t));
     return {
-      eps:    Math.round(p.epsMax + (p.epsMin - p.epsMax) * t),
+      eps,
       minPts: Math.round(p.ptsMin + (p.ptsMax - p.ptsMin) * t),
     };
   }
