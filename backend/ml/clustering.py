@@ -11,15 +11,15 @@ CLUSTER_COLORS = ["#E63946", "#2A9D8F", "#E9C46A", "#457B9D", "#F4A261"]
 cluster_levels = {
     "street": {
         "epsilon": 1300,
-        "min_pts": 3,
+        "min_pts": 4,
         "color": "#E63946"
     }, "neighborhood": {
         "epsilon": 3000,
-        "min_pts": 13,
+        "min_pts": 4,
         "color": "#243092"
     }, "district": {
         "epsilon": 13000,
-        "min_pts": 30,
+        "min_pts": 4,
         "color": "#0E6207"
     }
 }
