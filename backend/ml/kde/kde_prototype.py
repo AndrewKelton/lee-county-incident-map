@@ -62,7 +62,12 @@ y_min = np.min(northing)
 y_max = np.max(northing)
 x_len = x_max - x_min
 y_len = y_max - y_min
-increment = 100
+error_tolerance = 0.001
+p_bandwidth = 5
+print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (4 * p_bandwidth**2)))} percent')
+
+increment = kde_obj.bandwidth / p_bandwidth
+print(f'increment = {increment}')
 x_coords = np.arange(x_min, x_max, increment)
 y_coords = np.arange(y_min, y_max, increment)
 xx, yy = np.meshgrid(x_coords, y_coords)
