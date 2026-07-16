@@ -1,21 +1,39 @@
 """
-This module was prepared as a prototype demonstration of the KernDensity class
-of the scikit-learn python package.  It ultimately generates an png image of the 
+This module was prepared as a prototype demonstration of the FFTKDE class
+of the KDEpy python package.  It ultimately generates an png image of the 
 KDE algorithm for a set of x-y coordinates from a sample of County incident report data.
+Then takes the image data and overlays the image data onto a folium map which
+is a wrapper of the Leaflet javascript library.
 """
 
 import os
+import time
 import pandas as pd
 import numpy as np
 from pyproj import Transformer
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import PowerNorm
-from sklearn.neighbors import KernelDensity
+from KDEpy import FFTKDE
+from scipy.ndimage import gaussian_filter
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_origin
 import folium
+
+# cluster level for testing (-1 == noise; 0 = less dense; 1 = more dense)
+dbscan_cluster_level = [0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 1, 
+                        0, 0, 0, -1, 1, 1, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 
+                        0, 1, -1, 1, 1, 1, 1, 1, -1, 1, 1, 0, 1, -1, 0, 1, 1, 0, 1, 1, 1, 
+                        1, 1, -1, 0, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 0, 0, 0, -1, 1, 1, 0, 
+                        -1, 0, 1, 1, -1, 1, 0, -1, -1, 1, 0, 1, 1, -1, 1, -1, 1, 1, 1, 1, 
+                        -1, 1, 0, 1, 1, 0, 1, 0, -1, 1, 0, 0, 1, 1, -1, 0, -1, 1, 1, 1, -1, 
+                        1, 0, 1, -1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, -1, 1, 0, 1, 1, 1, 1, 1, 
+                        -1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, -1, 1, 1, 1, -1, 1, 0, 1, -1, 
+                        -1, 0, 0, 1, 1, -1, 0, 0, -1, 1, 1, -1, 1, 1, 1, 1, 0, 0, -1, 0, 1, 
+                        1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 
+                        1, 1, -1, -1, -1, 1, 0, 0, 1, 1, -1, 1, 1, 0, 0, 0, 1, -1, -1, 0, 1, 
+                        -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 0, 1, -1, 0]
 
 #CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
 CSV_PATH = os.path.join(
@@ -49,45 +67,48 @@ data_points, latitude, longitude = load_points()
 easting = data_points[:, 0]
 northing = data_points[:, 1]
 
-# instantiate a KernelDensity class
-kde_obj = KernelDensity(bandwidth=1500.0, kernel='gaussian')
+# instantiate a FFTKDE class
+kde_obj = FFTKDE(kernel='gaussian', bw=1500.0)
 
 # fit the kde model to the input data
-kde_model = kde_obj.fit(data_points)
+kde_model = kde_obj.fit(data=data_points)
 
 # create a mesh grid (lattice structure) to represent the corrsponding map coordinates
-x_min = np.min(easting)
-x_max = np.max(easting)
-y_min = np.min(northing)
-y_max = np.max(northing)
-x_len = x_max - x_min
-y_len = y_max - y_min
-error_tolerance = 0.001
+padding = 100
+x_min = np.min(easting) - padding
+x_max = np.max(easting) + padding
+y_min = np.min(northing) - padding
+y_max = np.max(northing) + padding
 p_bandwidth = 5
 print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (4 * p_bandwidth**2)))} percent')
-
-increment = kde_obj.bandwidth / p_bandwidth
+increment = kde_obj.bw / p_bandwidth
+print(f'kde_obj.bw = {kde_obj.bw}')
 print(f'increment = {increment}')
-x_coords = np.arange(x_min, x_max, increment)
-y_coords = np.arange(y_min, y_max, increment)
-xx, yy = np.meshgrid(x_coords, y_coords)
+x_coords = np.arange(x_min, x_max + increment, increment)
+y_coords = np.arange(y_min, y_max + increment, increment)
+xx, yy = np.meshgrid(x_coords, y_coords, indexing='ij')
 lattice = np.column_stack([xx.ravel(), yy.ravel()])
-
-# apply the kde model to the mesh grid - output of the kde model is log(density)
-log_density_surface = kde_model.score_samples(lattice)
-
 print(f'lattice.shape = {lattice.shape}')
-print(f'log_density_surface.shape = {log_density_surface.shape}')
+
+# apply the kde model to the mesh grid (store output as log(density))
+start = time.perf_counter()
+density_surface = kde_model.evaluate(grid_points=lattice)
+end = time.perf_counter()
+
+print(f'time to compute density_surface: {end - start:.4f} seconds')
+print(f'density_surface.shape = {density_surface.shape}')
 
 # reshape the density values to a rectangular grid
-density_grid = np.exp(log_density_surface.reshape(y_coords.shape[0], x_coords.shape[0]))
+density_grid = density_surface.reshape(x_coords.shape[0], y_coords.shape[0]).T
+# Then apply gaussian_filter to fix the square/blocky artifact
+density_grid_smoothed = gaussian_filter(density_grid, sigma=2)
 
 # set a threshold for removing very low density values
-threshold_percentile = np.percentile(density_grid, 1)
-threshold_max_based = density_grid.max() * 0.01
+threshold_percentile = np.percentile(density_grid_smoothed, 1)
+threshold_max_based = density_grid_smoothed.max() * 0.01
 threshold = max(threshold_percentile, threshold_max_based)
 print("threshold = " + str(threshold))
-density_grid_masked = np.ma.masked_where(density_grid < threshold, density_grid)
+density_grid_masked = np.ma.masked_where(density_grid_smoothed < threshold, density_grid_smoothed)
 
 # color map for coloring the heat map
 colors = [
