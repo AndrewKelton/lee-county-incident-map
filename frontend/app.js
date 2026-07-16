@@ -241,6 +241,48 @@
     document.getElementById("nature-panel").classList.add("hidden");
   });
 
+  // Report download
+
+  document.getElementById("report-btn").addEventListener("click", async () => {
+    const btn  = document.getElementById("report-btn");
+    const days = parseInt(document.getElementById("date-filter").value, 10);
+    const b    = map.getBounds();
+
+    btn.textContent = "Generating…";
+    btn.disabled    = true;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/report`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          days,
+          bounds: {
+            north: b.getNorth(),
+            south: b.getSouth(),
+            east:  b.getEast(),
+            west:  b.getWest(),
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `lee-county-report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Report generation failed: ${err.message}`);
+    } finally {
+      btn.textContent = "⬇ Generate Report";
+      btn.disabled    = false;
+    }
+  });
+
   // ── Boot ───────────────────────────────────────────────────────────────────
 
   loadIncidents();

@@ -164,6 +164,31 @@ html, body {
   margin: 0.3rem 0;
 }
 
+/* Report Button */
+
+#report-btn {
+  background: #1a3a5c;
+  color: #8ab4f8;
+  border: 1px solid #2a5298;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#report-btn:hover:not(:disabled) {
+  background: #22487a;
+  border-color: #8ab4f8;
+}
+
+#report-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 /* ── Map ───────────────────────────────────────────────────────────────────── */
 
 #map {

@@ -21,6 +21,20 @@ def _save_cache(cache: dict) -> None:
         json.dump(cache, f)
 
 
+def geocode_incidents_cached(incidents: list[dict]) -> list[dict]:
+    """Cache-only geocode — fast startup, no network calls.
+
+    Addresses not in the cache get lat=None, lng=None.
+    """
+    cache = _load_cache()
+    result = []
+    for inc in incidents:
+        key = f"{inc.get('address','').strip()}|{inc.get('city','').strip()}"
+        lat, lng = cache.get(key, [None, None])
+        result.append({**inc, "lat": lat, "lng": lng})
+    return result
+
+
 def geocode_incidents(incidents: list[dict]) -> list[dict]:
     """Add lat/lng to each incident dict. Uses a disk cache to avoid repeat lookups.
 

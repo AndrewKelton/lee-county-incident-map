@@ -2,7 +2,7 @@ import time
 import threading
 
 from scraper import fetch_incidents
-from geocoder import geocode_incidents
+from geocoder import geocode_incidents_cached
 
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
@@ -21,7 +21,7 @@ def get_incidents() -> list[dict]:
             return _cache["incidents"]
 
         raw = fetch_incidents()
-        geocoded = geocode_incidents(raw)
+        geocoded = geocode_incidents_cached(raw)
         _cache["incidents"] = geocoded
         _cache["fetched_at"] = time.time()
         return _cache["incidents"]
