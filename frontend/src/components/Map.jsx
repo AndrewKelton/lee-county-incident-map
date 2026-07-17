@@ -19,7 +19,7 @@ import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 
 const iconCache = {};
 //create a custom hook to move the map when user click on the item
-function MoveMap({ selectedLocation, countyCenter, markerRef }) {
+function MoveMap({ selectedLocation, markerRef }) {
   const map = useMap();
 
   useEffect(() => {
@@ -37,21 +37,48 @@ function MoveMap({ selectedLocation, countyCenter, markerRef }) {
   return null;
 }
 //custom hook for the search function
-function SearchAddress() {
+function SearchAddress({ setSelectedAddress, checkBound }) {
   const map = useMap();
   useEffect(() => {
     const search = new GeoSearchControl({
       provider: new OpenStreetMapProvider(),
+      showMarker: false,
+      showPopup: false,
+      updateMap: false,
+      searchLabel: "Search location",
+      style: "bar",
     });
     map.addControl(search);
+    //control when map on and searching
+    map.on("geosearch/showlocation", (result) => {
+      checkBound([result.location.y, result.location.x]);
+    });
+
     return () => map.removeControl(search);
   }, [map]);
   return null;
 }
+//Move map but with geo search:
+function MoveMapGEOSEARCH({ selectedLocation }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (selectedLocation) {
+      map.flyTo([selectedLocation[0], selectedLocation[1]], 18, {
+        duration: 1.2,
+      });
+      map.once("moveend", () => {});
+    }
+  }, [selectedLocation]);
+
+  return null;
+}
+
 function Map({ finalList, countyCenter, locationMove, idPopup }) {
   const [leeCounty, setLeeCounty] = useState(null);
   const markerRef = useRef(null); //useRef to mark the popup id
-
+  const [selectedAddress, setSelectedAddress] = useState(null);
+  const [isInside, setIsInside] = useState(false);
   useEffect(() => {
     fetch("/lee-county.json")
       .then((res) => res.json())
@@ -87,6 +114,49 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
       [26.78980006125687, -82.272362941444],
     ],
   ];
+  //setup the bound
+  const leeCountyPoints = LEECOUNTY_BOUNDARY[0];
+  const LEECOUNTY_BOUNDS = L.latLngBounds(leeCountyPoints);
+  //Check the result inside or outside the polygon
+  function checkBound(address) {
+    const longitude = address[1];
+    const latitude = address[0];
+
+    let count = 0;
+    for (let item = 0; item < LEECOUNTY_BOUNDARY[0].length; item++) {
+      if(item === LEECOUNTY_BOUNDARY[0].length - 1) break;
+      const bigLat =
+        LEECOUNTY_BOUNDARY[0][item][0] > LEECOUNTY_BOUNDARY[0][item + 1][0]
+          ? LEECOUNTY_BOUNDARY[0][item][0]
+          : LEECOUNTY_BOUNDARY[0][item + 1][0];
+      const bigLng =
+        LEECOUNTY_BOUNDARY[0][item][1] > LEECOUNTY_BOUNDARY[0][item + 1][1]
+          ? LEECOUNTY_BOUNDARY[0][item][1]
+          : LEECOUNTY_BOUNDARY[0][item + 1][1];
+
+      const smallLat =
+        LEECOUNTY_BOUNDARY[0][item][0] > LEECOUNTY_BOUNDARY[0][item + 1][0]
+          ? LEECOUNTY_BOUNDARY[0][item + 1][0]
+          : LEECOUNTY_BOUNDARY[0][item][0];
+      const smallLng =
+        LEECOUNTY_BOUNDARY[0][item][1] > LEECOUNTY_BOUNDARY[0][item + 1][1]
+          ? LEECOUNTY_BOUNDARY[0][item + 1][1]
+          : LEECOUNTY_BOUNDARY[0][item][1];
+      console.log(LEECOUNTY_BOUNDARY[0].length, item);
+
+      if (smallLat <= latitude && latitude <= bigLat) {
+        const fraction = (bigLat - latitude) / (bigLat - smallLat);
+
+        const intersection = smallLng + fraction * (bigLng - smallLng);
+
+        count = intersection > longitude ? count + 1 : count;
+      }
+    }
+    if (count % 2 !== 0) {
+      setIsInside(true);
+      setSelectedAddress(address);
+    } else setIsInside(false);
+  }
   // Get incident color
   // Color palette keyed by incident nature (first word, lowercase)
   const NATURE_COLORS = {
@@ -137,9 +207,12 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
   return (
     <MapContainer
       center={countyCenter}
-      zoom={10}
+      zoom={10.5}
+      minZoom={10.5}
       scrollWheelZoom={true}
       style={{ height: "100%", width: "100%" }}
+      maxBounds={LEECOUNTY_BOUNDS}
+      maxBoundsViscosity={1.0}
     >
       <TileLayer
         className="dark-map"
@@ -151,10 +224,16 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
       {leeCounty && (
         <GeoJSON data={leeCounty} style={{ color: "red", weight: 4 }} />
       )}
-      <div className="search-wrapper">
-        <SearchAddress />
-      </div>
-
+      <SearchAddress
+        setSelectedAddress={setSelectedAddress}
+        checkBound={checkBound}
+      />
+      {isInside ? (
+        <MoveMapGEOSEARCH selectedLocation={selectedAddress} />
+      ) : (
+        console.log("nahnah")
+      )}
+      ;
       {leeCounty && (
         <Polygon
           positions={[

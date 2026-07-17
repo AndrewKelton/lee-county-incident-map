@@ -357,13 +357,11 @@ body {
   border-radius: 8px;
 }
 .leaflet-control-geosearch form{
-  position: inherit !important;
+  position: absolute !important;
   max-width: 380px !important;
   background: red;
   padding: 0 !important;
-  top: 0 !important;
-  left: 50% !important;
-  transform: translateX(100%) !important;
+  top: 100px !important;
   border-radius: 4px !important;
   padding: 5px !important;
   border: 2px solid #525050;
@@ -384,9 +382,4 @@ body {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   color: black;
 }
-.search-wrapper{
-  width: 100%;
-  color: red;
-  height: 30px;
-  position: absolute;
-}
+
