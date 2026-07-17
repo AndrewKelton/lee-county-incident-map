@@ -21,8 +21,9 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_origin
 import folium
 
+# REPLACE CLUSTER LEVEL ASSIGNMENTS WITH CALL TO DBSCAN MODULE DURING APP INTEGRATION
 # cluster level for testing (-1 == noise; 0 = less dense; 1 = more dense)
-dbscan_cluster_level = [0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 1, 
+dbscan_cluster_level = np.array([0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 1, 
                         0, 0, 0, -1, 1, 1, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 
                         0, 1, -1, 1, 1, 1, 1, 1, -1, 1, 1, 0, 1, -1, 0, 1, 1, 0, 1, 1, 1, 
                         1, 1, -1, 0, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 0, 0, 0, -1, 1, 1, 0, 
@@ -33,7 +34,7 @@ dbscan_cluster_level = [0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, 
                         -1, 0, 0, 1, 1, -1, 0, 0, -1, 1, 1, -1, 1, 1, 1, 1, 0, 0, -1, 0, 1, 
                         1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 
                         1, 1, -1, -1, -1, 1, 0, 0, 1, 1, -1, 1, 1, 0, 0, 0, 1, -1, -1, 0, 1, 
-                        -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 0, 1, -1, 0]
+                        -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 0, 1, -1, 0])
 
 #CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
 CSV_PATH = os.path.join(
@@ -63,15 +64,33 @@ def load_points() -> np.ndarray:
 
 
 # input data based on a sample of x-y coordinates (easting/northing) from County incident data
-data_points, latitude, longitude = load_points()
-easting = data_points[:, 0]
-northing = data_points[:, 1]
+data_points_with_noise, latitude, longitude = load_points()
+easting = data_points_with_noise[:, 0]
+northing = data_points_with_noise[:, 1]
+
+mask_noise = (dbscan_cluster_level != -1)
+data_points_without_noise = data_points_with_noise[mask_noise]
+
+
+'''
+
+# data points separated into their corresponding cluster levels (as defined from DBSCAN)
+# index 0 is least dense; density increases as index increases
+num_cluster_levels = np.max(dbscan_cluster_level) + 1
+print(f'num_cluster_levels = {num_cluster_levels}')
+data_points_per_cluster_level = []
+for i in range(0, num_cluster_levels):
+    mask = (dbscan_cluster_level == i)
+    temp_arr = data_points_with_noise[mask]
+    data_points_per_cluster_level.append(temp_arr)
+'''
+
 
 # instantiate a FFTKDE class
 kde_obj = FFTKDE(kernel='gaussian', bw=1500.0)
 
 # fit the kde model to the input data
-kde_model = kde_obj.fit(data=data_points)
+kde_model = kde_obj.fit(data=data_points_without_noise)
 
 # create a mesh grid (lattice structure) to represent the corrsponding map coordinates
 padding = 100
