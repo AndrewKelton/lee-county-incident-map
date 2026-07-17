@@ -92,6 +92,15 @@
   position: absolute;
   left: 85%;
 }
+.incident-found-wrap{
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.incident-found{
+  font-size: 24px;
+  font-weight: 500;
+}
 /* ____ BOARD ___________________________________ */
 .list-board {
   margin-top: 30px;

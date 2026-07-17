@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import "./InteractiveList.css";
-function InteractiveList({ finalList, finalListUnlocated, getLocation, getIncidentID }) {
+function InteractiveList({
+  finalList,
+  finalListUnlocated,
+  getLocation,
+  getIncidentID,
+}) {
   const [isLocated, setIsLocated] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
   const [searchResult, setSearchResult] = useState("");
@@ -85,6 +90,19 @@ function InteractiveList({ finalList, finalListUnlocated, getLocation, getIncide
           ></i>
         )}
       </div>
+      {/* Display the incident number on the list */}
+      <div className="incident-found-wrap">
+        <div className="incident-found">
+          {`${
+            searchResult.length !== 0
+              ? `${filteredList.length}`
+              : isLocated
+                ? `${finalList.length}`
+                : `${finalListUnlocated.length}`
+          } incidents`}
+        </div>
+      </div>
+
       {/* 
         --- search result ? ---- yes -> filtered list
                             

@@ -207,8 +207,8 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
   return (
     <MapContainer
       center={countyCenter}
-      zoom={10.5}
-      minZoom={10.5}
+      zoom={10}
+      minZoom={10}
       scrollWheelZoom={true}
       style={{ height: "100%", width: "100%" }}
       maxBounds={LEECOUNTY_BOUNDS}
