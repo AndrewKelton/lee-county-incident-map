@@ -3,26 +3,39 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon
-from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
+from shapely.geometry import Point, mapping
+from shapely.ops import unary_union
+from kneed import KneeLocator, find_shape
+import folium
+import sys
+from pyproj import Transformer
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Tweak these to change the shape of the demo without touching any logic.
 
 # Path to the CSV — relative to this file so it works from any cwd.
-CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "incidents-small.csv")
-N_POINTS = 50             # how many rows to sample from the CSV
+CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
+N_POINTS = 250           # how many rows to sample from the CSV
 RANDOM_SEED = 42          # used only for the random sample so results are reproducible
 
-# EPS is in the same units as the projected coordinates (see load_points).
-# After mean-centering and scaling to ~km, a value around 0.3–0.8 is a good start.
-EPS         = 0.5         # DBSCAN ε — neighborhood radius
-MIN_SAMPLES = 2           # DBSCAN min_samples
+# EPS is in the same units as the projected coordinates (feet for EPSG:2882).
+# 1 degree ≈ 364,566 ft; 1 km ≈ 3,281 ft.
+EPS         = 13123.0       # DBSCAN ε — neighborhood radius (~4 km in feet)
+MIN_SAMPLES = 20            # DBSCAN min_samples
 
-SNAPSHOT_OUT     = "dbscan_snapshot.png"
-ANIMATION_OUT    = "dbscan_animation.gif"
+'''
+Level EPS (ft)	min_samples	Rationale
+Street	1200	3	~365m radius — one or two block faces
+Neighborhood	2953	6	~900m radius — walkable neighborhood scale
+District	13123	20	~4km radius — city district / county zone
+'''
+
+SNAPSHOT_OUT     = "output/dbscan_snapshot.png"
+ANIMATION_OUT    = "output/dbscan_animation.gif"
+FOLIUM_OUT       = "output/dbscan_map.html"
 ANIM_INTERVAL_MS = 600    # milliseconds between animation frames
 
 # ── Color palette ─────────────────────────────────────────────────────────────
@@ -33,9 +46,23 @@ UNVISITED_COLOR = "#CCCCCC"
 
 # ── 1. Data Loading ──────────────────────────────────────────────────────────
 
+def elbow_point_eps(points: np.ndarray):
+  neighbors_model = NearestNeighbors(n_neighbors=MIN_SAMPLES).fit(points)
+  distances, _ = neighbors_model.kneighbors(points)
+  k_distances = np.sort(distances[:, -1])
+  
+  x = np.arange(len(k_distances))
+  
+  kneedle = KneeLocator(x, k_distances, curve='convex', direction='increasing')
+  eps = kneedle.elbow_y
+  
+  print(f'epsilon: {eps}')
+  
+  return eps
+
 def load_points() -> np.ndarray:
     """
-    Load N_POINTS incidents from incidents-small.csv and return a (N, 2)
+    Load N_POINTS incidents from late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv and return a (N, 2)
     array of projected x/y coordinates suitable for DBSCAN.
 
     Steps:
@@ -43,62 +70,76 @@ def load_points() -> np.ndarray:
         not null (mirrors the idx_incidents_location index filter).
       - Sample N_POINTS rows with random_state=RANDOM_SEED so the demo
         is reproducible but draws from real data.
-      - Project from WGS84 to a local flat coordinate system:
-          x = (lon - lon.mean()) * cos(lat_mean_radians) * 111.32   # km
-          y = (lat - lat.mean()) * 111.32                           # km
-        This gives axes in kilometres centred at (0, 0) with roughly
-        equal x/y scale — appropriate for a small county-level extent.
-      - Return np.column_stack([x, y]) as a float64 array.
+      - Project from NAD83 geographic (EPSG:4269) to NAD 1983 StatePlane
+        Florida West FIPS 0902 (EPSG:2882) using pyproj. Coordinates are
+        in US Survey Feet with equal x/y scale — appropriate for county-level
+        DBSCAN where EPS is expressed in feet.
+      - Return np.column_stack([easting, northing]) as a float64 array.
     """
-    incidents_df = pd.read_csv(CSV_PATH)
-    incidents_20_random_df = incidents_df.sample(n=N_POINTS, random_state=RANDOM_SEED)
-    
-    lat_mean_rad = np.radians(incidents_20_random_df["lat"].mean())
-    x = (incidents_20_random_df["lon"] - incidents_20_random_df["lon"].mean()) * np.cos(lat_mean_rad) * 111.32
-    y = (incidents_20_random_df["lat"] - incidents_20_random_df["lat"].mean()) * 111.32
-    
-    points = np.column_stack([x, y])
-    return points
-    
+    incidents_df = pd.read_csv(CSV_PATH).dropna(subset=["lat", "lon"])
 
+    latitudes = incidents_df["lat"].to_numpy()
+    longitudes = incidents_df["lon"].to_numpy()
+
+    # NAD 1983 StatePlane Florida West FIPS 0902 Feet
+    transformer = Transformer.from_crs("EPSG:4269", "EPSG:2882", always_xy=True)
+    easting, northing = transformer.transform(longitudes, latitudes)
+
+    points = np.column_stack([easting, northing])
+
+    # eps = elbow_point_eps(points)
+    eps = EPS
+    min_samples = MIN_SAMPLES
+    
+    return points, latitudes, longitudes, min_samples, eps
+    
 
 # ── 2. Run DBSCAN ─────────────────────────────────────────────────────────────
 
-def run_dbscan(points: np.ndarray) -> np.ndarray:
+def run_dbscan(points: np.ndarray, min_samples: int=MIN_SAMPLES, eps: int=EPS) -> np.ndarray:
     """
     Fit DBSCAN on the point array and return the label array.
 
     Steps:
-      - Instantiate sklearn.cluster.DBSCAN with eps=EPS, min_samples=MIN_SAMPLES.
+      - Instantiate sklearn.cluster.DBSCAN with eps=EPS, min_samples=min_samples.
       - Call .fit(points) and return model.labels_
         (labels are integers 0..K-1 for clusters; -1 means noise).
     """
-    model = DBSCAN(eps=EPS, min_samples=MIN_SAMPLES)
+    
+    model = DBSCAN(eps=eps, min_samples=min_samples)
     model.fit(points)
     return model.labels_
 
 
-# ── 3. Convex Hull Helper ─────────────────────────────────────────────────────
+# ── 3. Cluster Union Buffer Helper ─────────────────────────────────────────────────────
 
-def cluster_hull_patch(points: np.ndarray, color: str, alpha: float = 0.15):
-    """
-    Given the subset of points belonging to one cluster, return a
-    matplotlib Polygon patch tracing the convex hull of those points.
-
-    Steps:
-      - If len(points) < 3, skip hull (can't form a polygon) and return None.
-      - Use scipy.spatial.ConvexHull(points) to get the hull.
-      - Index points[hull.vertices] to get the ordered boundary coordinates.
-      - Return a matplotlib.patches.Polygon built from those coordinates,
-        with fill=True, facecolor=color, alpha=alpha, edgecolor=color,
-        linewidth=1.5.
-    """
-    if len(points) < 3:
-      return None
+def cluster_union_buffer(points: np.ndarray, eps=EPS):
+    """Returns a Shapely Polygon or MultiPolygon: the union of EPS-radius
+    circles centred at each point in the cluster."""
     
-    hull = ConvexHull(points)
-    return Polygon(xy=points[hull.vertices], fill=True, facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+    shapely_points = [Point(p) for p in points]
+    buffers = [p.buffer(eps) for p in shapely_points]
+    return unary_union(buffers)
 
+def geometry_to_patches(geometry, color: str, alpha: float = 0.15) -> list:
+    """Convert a Shapely Polygon or MultiPolygon into a list of matplotlib
+    Polygon patches with the given color.  Returns an empty list for any
+    other geometry type (e.g. LineString from a degenerate cluster)."""
+    if geometry is None:
+        return []
+    if geometry.geom_type == 'Polygon':
+        geoms = [geometry]
+    elif geometry.geom_type == 'MultiPolygon':
+        geoms = list(geometry.geoms)
+    else:
+        return []
+    patches = []
+    for geom in geoms:
+        coords = np.array(geom.exterior.coords)
+        patches.append(Polygon(xy=coords, fill=True, facecolor=color,
+                               alpha=alpha, edgecolor=color, linewidth=1.5))
+    return patches
+  
 
 # ── 4. Static Snapshot ────────────────────────────────────────────────────────
 
@@ -132,8 +173,8 @@ def plot_snapshot(points: np.ndarray, labels: np.ndarray) -> None:
         color = CLUSTER_COLORS[label % len(CLUSTER_COLORS)]
         mask = labels == label
         ax.scatter(points[mask, 0], points[mask, 1], c=color, zorder=3)
-        patch = cluster_hull_patch(points[mask], color)
-        if patch is not None:
+        geometry = cluster_union_buffer(points[mask])
+        for patch in geometry_to_patches(geometry, color):
             ax.add_patch(patch)
         legend_handles.append(mpatches.Patch(color=color, label=f'Cluster {label}'))
 
@@ -149,194 +190,53 @@ def plot_snapshot(points: np.ndarray, labels: np.ndarray) -> None:
     plt.close(fig)
 
 
-# ── 5. Animation ──────────────────────────────────────────────────────────────
+# ── 5. Plot Folium Mapping ──────────────────────────────────────────────────────────────
 
-def build_animation_frames(points: np.ndarray, labels: np.ndarray) -> list[dict]:
+def plot_folium_map(lats: np.ndarray, lons: np.ndarray, labels: np.ndarray) -> None:
     """
-    Build an ordered list of frame-state dicts that FuncAnimation will consume.
-    This simulates DBSCAN's BFS expansion for visualization purposes —
-    it does NOT re-run sklearn; it uses the already-computed labels to drive
-    the reveal order.
+    Plot DBSCAN results on an interactive Leaflet map using folium.
+    Each point is rendered as a CircleMarker colored by cluster label.
+    Noise points (-1) are shown in NOISE_COLOR. Saves to FOLIUM_OUT.
+    """
+    center_lat = float(lats.mean())
+    center_lon = float(lons.mean())
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
 
-    Frame state dict schema:
-        {
-          "visited":  set of point indices colored so far,
-          "current":  index of the point being "processed" this frame (or None),
-          "eps_ring": True if we should draw the ε-circle this frame,
-          "cluster_complete": set of cluster ids whose hull should be drawn,
+    for i, (lat, lon, label) in enumerate(zip(lats, lons, labels)):
+      if label == -1:
+        color = NOISE_COLOR
+        tooltip = "Noise"
+      else:
+        color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+        tooltip = f"Cluster {label}"
+      folium.CircleMarker(
+        location=[lat, lon],
+        radius=5,
+        color=color,
+        fill=True,
+        fill_color=color,
+        fill_opacity=0.8,
+        tooltip=tooltip,
+      ).add_to(m)
+
+    eps_deg = EPS / 364566.9  # convert feet → degrees (1 deg ≈ 364,566 ft)
+    for label in sorted(set(labels) - {-1}):
+      mask = labels == label
+      color = CLUSTER_COLORS[int(label) % len(CLUSTER_COLORS)]
+      lonlat_points = np.column_stack([lons[mask], lats[mask]])
+      geometry = cluster_union_buffer(lonlat_points, eps=eps_deg)
+      folium.GeoJson(
+        mapping(geometry),
+        style_function=lambda f, c=color: {
+          'fillColor': c,
+          'color': c,
+          'fillOpacity': 0.15,
+          'weight': 1.5,
         }
+      ).add_to(m)
 
-    Steps:
-      - Frame 0: visited=empty, current=None, eps_ring=False — all gray dots.
-      - Group point indices by label. Process clusters in label order.
-        For each cluster:
-          - Pick the point with the most neighbors within EPS as the "seed" core.
-          - BFS: each iteration = one frame. The frame shows the current point
-            highlighted with its ε-circle, then the next frame adds it to visited.
-          - Once the cluster queue is empty, emit one "hull reveal" frame
-            (eps_ring=False, full cluster colored + hull drawn).
-      - After all clusters, process noise points: one frame each, colored gray.
-      - Return the list of frame dicts.
-    """
-    from collections import deque
-
-    frames = []
-
-    # Frame 0: nothing visited
-    frames.append({
-        'visited': set(),
-        'current': None,
-        'eps_ring': False,
-        'cluster_complete': set(),
-    })
-
-    completed_clusters: set = set()
-    visited_so_far: set = set()
-
-    cluster_labels = sorted(set(labels) - {-1})
-    label_to_indices = {lbl: np.where(labels == lbl)[0].tolist() for lbl in cluster_labels}
-
-    for lbl in cluster_labels:
-        indices = label_to_indices[lbl]
-        cluster_pts = points[indices]
-
-        # Seed = point with the most neighbors within EPS
-        dists = np.linalg.norm(cluster_pts[:, None] - cluster_pts[None, :], axis=2)
-        seed_local = int(np.argmax((dists < EPS).sum(axis=1)))
-        seed_global = indices[seed_local]
-
-        remaining = sorted([i for i in indices if i != seed_global],
-                           key=lambda i: np.linalg.norm(points[i] - points[seed_global]))
-        queue = deque([seed_global] + remaining)
-
-        while queue:
-            current = queue.popleft()
-            frames.append({
-                'visited': set(visited_so_far),
-                'current': current,
-                'eps_ring': True,
-                'cluster_complete': set(completed_clusters),
-            })
-            visited_so_far.add(current)
-
-        completed_clusters = completed_clusters | {lbl}
-        frames.append({
-            'visited': set(visited_so_far),
-            'current': None,
-            'eps_ring': False,
-            'cluster_complete': set(completed_clusters),
-        })
-
-    for i in np.where(labels == -1)[0]:
-        frames.append({
-            'visited': set(visited_so_far),
-            'current': int(i),
-            'eps_ring': False,
-            'cluster_complete': set(completed_clusters),
-        })
-        visited_so_far.add(int(i))
-
-    return frames
-
-
-def animate(frame_idx: int, points: np.ndarray, frames: list[dict], ax) -> list:
-    """
-    FuncAnimation update function — called once per frame.
-    Must clear the axes and redraw the current state from frames[frame_idx].
-
-    Steps:
-      - ax.cla() to clear.
-      - Re-apply axis labels, title, aspect ratio, and fixed x/y limits
-        (compute limits once outside this function so they don't jump).
-      - Draw all unvisited points in UNVISITED_COLOR.
-      - Draw all visited points colored by their cluster label.
-      - If frame["eps_ring"] is True, draw a Circle patch at frame["current"]
-        with radius=EPS, fill=False, linestyle='--', color='black'.
-      - For each cluster id in frame["cluster_complete"], call
-        cluster_hull_patch() and add it to ax.
-      - Highlight frame["current"] point with a larger marker if not None.
-      - Return a list of all artists drawn (required by FuncAnimation blit=False).
-    """
-    frame = frames[frame_idx]
-    ax.cla()
-    ax.set_xlim(ax._xlim_animated)
-    ax.set_ylim(ax._ylim_animated)
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_title('DBSCAN — BFS Expansion')
-    ax.set_aspect('equal')
-
-    artists = []
-    visited = frame['visited']
-    current = frame['current']
-
-    unvisited = [i for i in range(len(points)) if i not in visited and i != current]
-    if unvisited:
-        artists.append(ax.scatter(points[unvisited, 0], points[unvisited, 1],
-                                  c=UNVISITED_COLOR, zorder=2))
-
-    for i in visited:
-        color = ax._label_colors.get(i, NOISE_COLOR)
-        artists.append(ax.scatter(points[i, 0], points[i, 1], c=color, zorder=3))
-
-    for cid in frame['cluster_complete']:
-        mask = ax._cluster_masks[cid]
-        color = CLUSTER_COLORS[cid % len(CLUSTER_COLORS)]
-        patch = cluster_hull_patch(points[mask], color)
-        if patch is not None:
-            ax.add_patch(patch)
-            artists.append(patch)
-
-    if frame['eps_ring'] and current is not None:
-        circle = plt.Circle(points[current], EPS,
-                            fill=False, linestyle='--', color='black', zorder=4)
-        ax.add_patch(circle)
-        artists.append(circle)
-
-    if current is not None:
-        color = ax._label_colors.get(current, NOISE_COLOR)
-        artists.append(ax.scatter(points[current, 0], points[current, 1],
-                                  c=color, s=120, zorder=5,
-                                  edgecolors='black', linewidths=1))
-
-    return artists
-
-
-def save_animation(points: np.ndarray, labels: np.ndarray) -> None:
-    """
-    Wire up FuncAnimation and save to ANIMATION_OUT.
-
-    Steps:
-      - Call build_animation_frames(points, labels) to get the frame list.
-      - Create figure and axes; compute and store fixed axis limits
-        (min/max of points ± EPS + small padding) so they don't shift mid-animation.
-      - Instantiate FuncAnimation(fig, animate, frames=len(frames),
-          fargs=(points, frames, ax), interval=ANIM_INTERVAL_MS, repeat=False).
-      - Save with anim.save(ANIMATION_OUT, writer='pillow', fps=...).
-      - Print a confirmation message.
-    """
-    frames = build_animation_frames(points, labels)
-
-    fig, ax = plt.subplots()
-    pad = EPS * 1.5
-    ax._xlim_animated = (points[:, 0].min() - pad, points[:, 0].max() + pad)
-    ax._ylim_animated = (points[:, 1].min() - pad, points[:, 1].max() + pad)
-    ax._label_colors = {
-        i: (CLUSTER_COLORS[lbl % len(CLUSTER_COLORS)] if lbl >= 0 else NOISE_COLOR)
-        for i, lbl in enumerate(labels)
-    }
-    ax._cluster_masks = {
-        lbl: np.where(labels == lbl)[0]
-        for lbl in set(labels) - {-1}
-    }
-
-    fps = max(1, 1000 // ANIM_INTERVAL_MS)
-    anim = FuncAnimation(fig, animate, frames=len(frames),
-                         fargs=(points, frames, ax),
-                         interval=ANIM_INTERVAL_MS, repeat=False)
-    anim.save(ANIMATION_OUT, writer='pillow', fps=fps)
-    plt.close(fig)
-    print(f'Animation saved to {ANIMATION_OUT}')
+    m.save(FOLIUM_OUT)
+    print(f"Folium map saved to {FOLIUM_OUT}")
 
 
 # ── 6. Entry Point ────────────────────────────────────────────────────────────
@@ -350,14 +250,25 @@ def main():
       4. save_animation()  → saves ANIMATION_OUT
       5. Print a summary: how many clusters found, how many noise points.
     """
-    points = load_points()
-    labels = run_dbscan(points)
-    plot_snapshot(points, labels)
-    save_animation(points, labels)
+    
+    option = -1
+    if len(sys.argv) > 1:
+      option = sys.argv[1]
+    
+    points, lats, lons, min_samples, eps = load_points()
+    labels = run_dbscan(points, min_samples, eps)
+    
+    if option == -1 or option == "snapshot":
+      # plot normal snapshot grid
+      plot_snapshot(points, labels)
+      
+    if option == -1 or option == "mapping":
+      # plot mapping of clusters
+      plot_folium_map(lats, lons, labels)
 
     n_clusters = len(set(labels) - {-1})
     n_noise = int((labels == -1).sum())
-    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}')
+    print(f'Clusters found: {n_clusters}  |  Noise points: {n_noise}  | min_samples: {min_samples} | eps: {eps}')
 
 
 if __name__ == "__main__":
