@@ -11,6 +11,8 @@ import time
 import pandas as pd
 import numpy as np
 from pyproj import Transformer
+from scipy.optimize import minimize
+from scipy.interpolate import RegularGridInterpolator
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import PowerNorm
@@ -61,6 +63,63 @@ def load_points() -> np.ndarray:
     
     return points, latitude, longitude
 
+# function ensures bandwidth bounds for optimization
+# input is array of log(bw_i - bw_i+1) for i<(n-1) and log(val_i+lower_bound) for i==n
+# output is array of bandwidths such that bw_i > bw_i+1 and bw_i > 0
+def unpack_bandwidths(bw_diffs: list[float]) -> np.ndarray:
+    lower_bound = 50
+    # density increases as index increases (lower density corresponds to higher bandwidth)
+    num_bandwidths = len(bw_diffs)
+    reversed_bw_diffs = bw_diffs[::-1].copy()
+    reversed_bandwidths = np.zeros(num_bandwidths)
+    for i, bw_diff in enumerate(reversed_bw_diffs):
+        if i == 0:
+            reversed_bandwidths[i] = lower_bound + np.exp(bw_diff)
+        elif i > 0:
+            reversed_bandwidths[i] = reversed_bandwidths[i - 1] + np.exp(bw_diff)
+    bandwidths = reversed_bandwidths[::-1].copy()
+    return bandwidths
+
+# peak value of 2D gaussian distribution for bandwidth input
+def gaussian_peak_2d(bandwidth):
+    return 1.0 / (2 * np.pi * bandwidth**2)
+
+# objective function for negative log-likelihood of leave-one-out cross-validation for FFTKDE class
+# input is cur_bw_diffs = array of log bandwidth differences (see the 'unpack_bandwidths' function), point_groups = list of array of x-y coordinates for each cluster level, x_grid and y_grid are x and y coordinates to form lattice
+# output is negative log-likelihood for current bandwidths
+# CURRENTLY DEVELOPED ONLY FOR A SINGLE CLUSTER LEVEL ASSIGNMENT
+def loo_neg_log_likelihood(cur_bw_diffs: np.ndarray, point_groups: list[np.ndarray], x_grid: np.ndarray, y_grid: np.ndarray):
+    try:
+        bandwidth1 = unpack_bandwidths(cur_bw_diffs)[0]
+        N = len(point_groups[0])
+        bw_per_point = np.full(N, bandwidth1)
+
+        xx, yy = np.meshgrid(x_grid, y_grid, indexing='ij')
+        grid = np.column_stack([xx.ravel(), yy.ravel()])
+
+        # density of the grid
+        f_grid = FFTKDE(kernel='gaussian', bw=bandwidth1).fit(point_groups[0]).evaluate(grid)
+        f_grid_2d = f_grid.reshape(x_grid.shape[0], y_grid.shape[0])
+
+        # interpolate density surface at input data points
+        interpolator = RegularGridInterpolator(
+            (x_grid, y_grid), f_grid_2d, bounds_error=False, fill_value=1e-300
+        )
+        f_at_points = interpolator(point_groups[0])
+
+        # represents the gaussian corresponding to each data point
+        self_term = gaussian_peak_2d(bw_per_point) / N
+
+        # leave-one-out density
+        f_loo = (N * f_at_points - N * self_term) / (N - 1)
+        # set values < 1e-300 to 1e-300 (namely to guard against log(0)
+        f_loo = np.clip(f_loo, 1e-300, None)
+
+        # negative log-likelihood
+        return -np.sum(np.log(f_loo))
+    except(ValueError, FloatingPointError):
+        # large penalty to protect against the minimizer searching extremely large bandwidth values that cause an error with FFTKDE
+        return 1e10
 
 
 # input data based on a sample of x-y coordinates (easting/northing) from County incident data
@@ -86,28 +145,45 @@ for i in range(0, num_cluster_levels):
 '''
 
 
-# instantiate a FFTKDE class
-kde_obj = FFTKDE(kernel='gaussian', bw=1500.0)
-
-# fit the kde model to the input data
-kde_model = kde_obj.fit(data=data_points_without_noise)
-
 # create a mesh grid (lattice structure) to represent the corrsponding map coordinates
 padding = 100
 x_min = np.min(easting) - padding
 x_max = np.max(easting) + padding
 y_min = np.min(northing) - padding
 y_max = np.max(northing) + padding
-p_bandwidth = 5
-print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (4 * p_bandwidth**2)))} percent')
-increment = kde_obj.bw / p_bandwidth
-print(f'kde_obj.bw = {kde_obj.bw}')
+increment = 300
 print(f'increment = {increment}')
 x_coords = np.arange(x_min, x_max + increment, increment)
 y_coords = np.arange(y_min, y_max + increment, increment)
 xx, yy = np.meshgrid(x_coords, y_coords, indexing='ij')
 lattice = np.column_stack([xx.ravel(), yy.ravel()])
 print(f'lattice.shape = {lattice.shape}')
+
+#bandwidth optimization (explore different starting points - optimizer tends to get stuck on floor value without providing range of starting values for lowest bandwidth)
+candidate_starts_lowest_bw = [10, 100, 1000]
+best_result = None
+
+for bw_guess in candidate_starts_lowest_bw:
+    initial_bw_diffs = np.log([bw_guess])
+    res = minimize(loo_neg_log_likelihood, initial_bw_diffs, args=([data_points_without_noise], x_coords, y_coords), method='Nelder-Mead')
+    if best_result is None or res.fun < best_result.fun:
+        best_result = res
+
+print("best objective:", best_result.fun)
+print("best bandwidth:", unpack_bandwidths(best_result.x))
+
+optimized_bandwidth = unpack_bandwidths(best_result.x)[0]
+
+
+print(f'optimized_bandwidth = {optimized_bandwidth}')
+p_bandwidth = optimized_bandwidth / increment
+print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (4 * p_bandwidth**2)))} percent')
+
+# instantiate a FFTKDE class
+kde_obj = FFTKDE(kernel='gaussian', bw=optimized_bandwidth)
+
+# fit the kde model to the input data
+kde_model = kde_obj.fit(data=data_points_without_noise)
 
 # apply the kde model to the mesh grid (store output as log(density))
 start = time.perf_counter()
