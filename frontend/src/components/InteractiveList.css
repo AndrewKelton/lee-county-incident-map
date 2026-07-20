@@ -91,6 +91,7 @@
   color: #222240;
   position: absolute;
   left: 85%;
+  cursor: pointer;
 }
 .incident-found-wrap{
   width: 100%;

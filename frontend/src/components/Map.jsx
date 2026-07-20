@@ -124,7 +124,7 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
 
     let count = 0;
     for (let item = 0; item < LEECOUNTY_BOUNDARY[0].length; item++) {
-      if(item === LEECOUNTY_BOUNDARY[0].length - 1) break;
+      if (item === LEECOUNTY_BOUNDARY[0].length - 1) break;
       const bigLat =
         LEECOUNTY_BOUNDARY[0][item][0] > LEECOUNTY_BOUNDARY[0][item + 1][0]
           ? LEECOUNTY_BOUNDARY[0][item][0]

@@ -1,0 +1,110 @@
+.page-1,.page-2,.page-3,.page-4{
+    height: 100vh;
+    width: 100vw;
+    background-color: #8A8A8A;
+}
+.page-wrapper{
+    height: 300vh;
+    width: 100vw;
+}
+/* ── ICON ───────────────────────────────────────────────────────────────────── */
+.traffic-light{
+    height: 100px;
+    position: absolute;
+}
+.icon{
+    position: absolute;
+}
+
+/* ── PAGE 1 ───────────────────────────────────────────────────────────────────── */
+.page-1, .page-2, .page-3{
+    display: flex;
+    justify-content: space-between;
+    gap: 200px;
+}
+.page-1-left,.page-2-left, .page-3-left{
+    height: 100vh;
+    width: 30%;
+}
+.page-1-right{
+    height: 100vh;
+    width: 70%;
+}
+.page1-block-top-left{
+    position: relative;
+    height: 65%;
+    width: 100%;
+    background-color: #B7CFA8;
+    border-bottom-right-radius: 16px;
+    min-width: 150px;
+}
+.page1-block-bottom-left{
+    margin-top: 200px;
+    height: calc(100vh - 65vh - 200px);
+    width: 100%;
+    min-width: 150px;
+    background-color: #B7CFA8;
+    border-top-right-radius: 16px;
+    position: relative;
+}
+.page1-block-right{
+    height: 100vh;
+    width: 100%;
+    background-color: #B7CFA8;
+}
+
+/* ── PAGE 2 ───────────────────────────────────────────────────────────────────── */
+.page2-block-left{
+    height: 100%;
+    width: 100%;
+    background-color: #B7CFA8;
+    min-width: 150px;
+}
+.page-2-right{
+    height: 100vh;
+    width: 70%;
+}
+.page2-block-right{
+    height: 100vh;
+    width: 100%;
+    background-color: #7edb92;
+}
+
+/* ── PAGE 3 ───────────────────────────────────────────────────────────────────── */
+
+.page3-block-top-left{
+    height: 65%;
+    width: 100%;
+    background-color: #7edb92;
+    border-bottom-right-radius: 16px;
+    min-width: 150px;
+}
+.page3-block-bottom-left{
+    margin-top: 200px;
+    height: calc(100vh - 65vh - 200px);
+    width: 100%;
+    min-width: 150px;
+    background-color: #7edb92;
+    border-top-right-radius: 16px;
+    position: relative;
+}
+.page-3-right{
+    height: 100vh;
+    width: 70%;
+}
+.page3-block-top-right{
+    height: 65%;
+    width: 100%;
+    background-color: #7edb92;
+    border-bottom-left-radius: 16px;
+    min-width: 150px;
+}
+.page3-block-bottom-right{
+    margin-top: 200px;
+    height: calc(100vh - 65vh - 200px);
+    width: 100%;
+    min-width: 150px;
+    background-color: #7edb92;
+    border-top-left-radius: 16px;
+    position: relative;
+}

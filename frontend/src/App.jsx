@@ -1,11 +1,11 @@
 import { useState } from "react";
 import "./App.css";
-import MapPage from "./components/MapPage";
-
+import "./components/LandingPage.css"
+import LandingPage from "./components/LandingPage";
 function App() {
 
   return (
-    <MapPage/>
+    <LandingPage/>
   );
 }
 
