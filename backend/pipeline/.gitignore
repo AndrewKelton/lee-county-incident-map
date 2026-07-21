@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts (Lambda packaging output - see infra/lambda/build.sh)
+/build/
+/dist/
+wheels/
+*.zip
+
+# Virtual environments
+.venv
+
+# Local state
+/data/*
+!/data/seeds/
+
+# Secrets
+.env
+
+# IDE / tooling
+.idea/
