@@ -7,6 +7,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
+from staticmap import StaticMap, CircleMarker
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -20,6 +22,58 @@ _NAVY  = colors.HexColor("#1e3a5f")
 _BLUE  = "#2563eb"
 _LIGHT = colors.HexColor("#f0f4f8")
 _RULE  = colors.HexColor("#ddd")
+
+_NATURE_COLORS = {
+    "disturbance": "#e74c3c",
+    "assault":     "#c0392b",
+    "theft":       "#e67e22",
+    "burglary":    "#d35400",
+    "traffic":     "#3498db",
+    "suspicious":  "#9b59b6",
+    "medical":     "#1abc9c",
+    "fire":        "#e74c3c",
+    "welfare":     "#27ae60",
+    "domestic":    "#c0392b",
+}
+
+
+def _incident_color(nature):
+    if not nature:
+        return "#7f8c8d"
+    key = nature.strip().lower().split()[0] if nature.strip() else ""
+    return _NATURE_COLORS.get(key, "#7f8c8d")
+
+
+def _map_snapshot(incidents, bounds):
+    """Download OSM tiles and plot incident dots; returns a PNG BytesIO or None."""
+    try:
+        m = StaticMap(750, 450)
+
+        lat_c = (bounds["north"] + bounds["south"]) / 2
+        lng_c = (bounds["east"]  + bounds["west"])  / 2
+        lat_span = bounds["north"] - bounds["south"]
+
+        if   lat_span > 1.0:  zoom = 10
+        elif lat_span > 0.5:  zoom = 11
+        elif lat_span > 0.25: zoom = 12
+        elif lat_span > 0.1:  zoom = 13
+        else:                 zoom = 14
+
+        for inc in incidents:
+            lat = inc.get("lat")
+            lng = inc.get("lng")
+            if lat is not None and lng is not None:
+                color = _incident_color(inc.get("nature"))
+                # StaticMap expects (longitude, latitude)
+                m.add_marker(CircleMarker((float(lng), float(lat)), color, 8))
+
+        image = m.render(zoom=zoom, center=(lng_c, lat_c))
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
 
 
 def _parse_date(inc):
@@ -154,6 +208,13 @@ def generate_pdf(incidents, bounds, days):
     ))
     story.append(Spacer(1, 0.1 * inch))
     story.append(HRFlowable(width="100%", thickness=1, color=_RULE, spaceAfter=10))
+
+    # Map snapshot
+    map_png = _map_snapshot(incidents, bounds)
+    if map_png:
+        story.append(Paragraph("Incident Map", h2_s))
+        story.append(Image(map_png, width=6.5*inch, height=3.9*inch))
+        story.append(Spacer(1, 0.1 * inch))
 
     # Summary stats
     story.append(Paragraph("Summary", h2_s))
