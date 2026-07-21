@@ -9,7 +9,11 @@ import {
   Polygon,
   CircleMarker,
 } from "react-leaflet";
-import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import {
+  GeoSearchControl,
+  OpenStreetMapProvider,
+  MapBoxProvider,
+} from "leaflet-geosearch";
 import "leaflet-geosearch/dist/geosearch.css";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -19,7 +23,7 @@ import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 
 const iconCache = {};
 //create a custom hook to move the map when user click on the item
-function MoveMap({ selectedLocation, markerRef }) {
+function MoveMap({ selectedLocation, markerRef = null }) {
   const map = useMap();
 
   useEffect(() => {
@@ -28,46 +32,8 @@ function MoveMap({ selectedLocation, markerRef }) {
         duration: 1.2,
       });
       map.once("moveend", () => {
-        console.log("marker ref:", markerRef.current);
-        markerRef.current?.openPopup();
+        markerRef?.current?.openPopup();
       });
-    }
-  }, [selectedLocation]);
-
-  return null;
-}
-//custom hook for the search function
-function SearchAddress({ setSelectedAddress, checkBound }) {
-  const map = useMap();
-  useEffect(() => {
-    const search = new GeoSearchControl({
-      provider: new OpenStreetMapProvider(),
-      showMarker: false,
-      showPopup: false,
-      updateMap: false,
-      searchLabel: "Search location",
-      style: "bar",
-    });
-    map.addControl(search);
-    //control when map on and searching
-    map.on("geosearch/showlocation", (result) => {
-      checkBound([result.location.y, result.location.x]);
-    });
-
-    return () => map.removeControl(search);
-  }, [map]);
-  return null;
-}
-//Move map but with geo search:
-function MoveMapGEOSEARCH({ selectedLocation }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (selectedLocation) {
-      map.flyTo([selectedLocation[0], selectedLocation[1]], 18, {
-        duration: 1.2,
-      });
-      map.once("moveend", () => {});
     }
   }, [selectedLocation]);
 
@@ -79,6 +45,10 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
   const markerRef = useRef(null); //useRef to mark the popup id
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [isInside, setIsInside] = useState(false);
+  const [addressType, setAddressType] = useState("");
+  const [addressList, setAddressList] = useState(null);
+  const [searchError, setSearchError] = useState("");
+  const timer = useRef(null);
   useEffect(() => {
     fetch("/lee-county.json")
       .then((res) => res.json())
@@ -118,10 +88,12 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
   const leeCountyPoints = LEECOUNTY_BOUNDARY[0];
   const LEECOUNTY_BOUNDS = L.latLngBounds(leeCountyPoints);
   //Check the result inside or outside the polygon
-  function checkBound(address) {
-    const longitude = address[1];
-    const latitude = address[0];
-
+  function checkBound(coordinates) {
+    console.log(coordinates);
+    const longitude = coordinates[0][0];
+    const latitude = coordinates[0][1];
+    console.log(longitude, latitude);
+    console.log("get into checkbound");
     let count = 0;
     for (let item = 0; item < LEECOUNTY_BOUNDARY[0].length; item++) {
       if (item === LEECOUNTY_BOUNDARY[0].length - 1) break;
@@ -152,10 +124,30 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
         count = intersection > longitude ? count + 1 : count;
       }
     }
+    console.log(count);
     if (count % 2 !== 0) {
+      console.log("success");
       setIsInside(true);
-      setSelectedAddress(address);
+      setSelectedAddress([latitude, longitude]);
     } else setIsInside(false);
+  }
+  //search function
+  async function searchAddress(address) {
+    const token =
+      import.meta.env.VITE_MAPBOX_TOKEN;
+
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+        address,
+      )}.json?access_token=${token}`,
+    );
+
+    const data = await res.json();
+    if (data.features.length > 0) {
+      console.log(data.features);
+      setAddressList(data.features);
+      console.log(addressList);
+    }
   }
   // Get incident color
   // Color palette keyed by incident nature (first word, lowercase)
@@ -205,84 +197,200 @@ function Map({ finalList, countyCenter, locationMove, idPopup }) {
     return iconCache[color];
   }
   return (
-    <MapContainer
-      center={countyCenter}
-      zoom={10}
-      minZoom={10}
-      scrollWheelZoom={true}
-      style={{ height: "100%", width: "100%" }}
-      maxBounds={LEECOUNTY_BOUNDS}
-      maxBoundsViscosity={1.0}
-    >
-      <TileLayer
-        className="dark-map"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {/*create a custom hook to move the map when user click on the item */}
-      <MoveMap selectedLocation={locationMove} markerRef={markerRef} />
-      {leeCounty && (
-        <GeoJSON data={leeCounty} style={{ color: "red", weight: 4 }} />
-      )}
-      <SearchAddress
-        setSelectedAddress={setSelectedAddress}
-        checkBound={checkBound}
-      />
-      {isInside ? (
-        <MoveMapGEOSEARCH selectedLocation={selectedAddress} />
-      ) : (
-        console.log("nahnah")
-      )}
-      ;
-      {leeCounty && (
-        <Polygon
-          positions={[
-            [
-              [-90, -180],
-              [-90, 180],
-              [90, 180],
-              [90, -180],
-              [-90, -180],
-            ],
-            LEECOUNTY_BOUNDARY,
-          ]}
-          pathOptions={{
-            fillColor: "black",
-            fillOpacity: 0.4,
-            stroke: false,
+    <div style={{ height: "100%", width: "100%", position: "relative" }}>
+      <div
+        style={{
+          height: "40px",
+          fontSize: "20px",
+          width: "550px",
+          borderRadius: "12px",
+          paddingLeft: "10px",
+          position: "absolute",
+          top: "100px",
+          left: "calc((100vw - 550px) / 2)",
+          zIndex: 1000,
+        }}
+      >
+        <input
+          type="text"
+          style={{
+            height: "40px",
+            fontSize: "20px",
+            width: "100%",
+            borderRadius: "12px",
+            paddingLeft: "10px",
+            outline: "none",
+
+            zIndex: 1000,
+          }}
+          placeholder="Enter address"
+          value={addressType}
+          onChange={(e) => {
+            const value = e.target.value;
+
+            setAddressType(value);
+
+            clearTimeout(timer.current);
+
+            if (!value.trim()) return;
+
+            timer.current = setTimeout(() => {
+              console.log("CALLING SEARCH:", value);
+              searchAddress(value);
+            }, 500);
           }}
         />
-      )}
-      <MarkerClusterGroup disableClusteringAtZoom={16}>
-        {finalList.map((incident, index) => (
-          <Marker
-            key={incident.id}
-            position={[incident.lat, incident.lng]}
-            icon={createIncidentIcon(incident.nature)}
-            ref={idPopup === incident.id ? markerRef : null}
-          >
-            <Popup>
-              <div className="popup-address">
-                <h3>{incident.address}</h3>
-                <h5>{incident.city}</h5>
-              </div>
-              <div className="popup-line"></div>
-              <div className="popup-content">
-                <h4 className="popup-content-normal">{`Incident Number: ${incident.incidentNumber}`}</h4>
-                <h4 className="popup-content-normal">
-                  Type:
-                  <span
-                    style={{ fontSize: "16px", color: "#ca745f" }}
-                  >{` ${incident.nature}`}</span>
-                </h4>
-                <h4 className="popup-content-normal">{`Disposition: ${incident.disposition}`}</h4>
-                <h4 className="popup-content-normal">{`Date: ${incident.occuredDate.split(".")[0]}`}</h4>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MarkerClusterGroup>
-    </MapContainer>
+        {addressType.length !== 0 && (
+          <i
+            style={{
+              fontSize: "20px",
+              color: "#222240",
+              position: "absolute",
+              zIndex: 1000,
+              top: "0px",
+              left: "94%",
+              padding: "10px",
+              cursor: "pointer",
+            }}
+            className="fa-solid fa-xmark"
+            onClick={() => {
+              setAddressType("");
+            }}
+          ></i>
+        )}
+        <ul
+          style={{
+            width: "500px",
+            listStyleType: "none",
+            fontSize: "20px",
+            position: "absolute",
+            zIndex: 1000,
+            top: "40px",
+            left: "30px",
+            cursor: "pointer",
+          }}
+        >
+          {addressList !== null &&
+            addressList.map((address, index) => {
+              return (
+                <li
+                  key={index}
+                  style={{
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    color: "black",
+                    backgroundColor: "white",
+                    padding: "10px",
+                    borderBottom: "1px solid grey",
+                  }}
+                  onClick={() => checkBound([address.center])}
+                >
+                  {address.place_name}
+                </li>
+              );
+            })}
+        </ul>
+        <div
+          style={{
+            width: "400px",
+            fontSize: "20px",
+            position: "absolute",
+            zIndex: 1000,
+            top: "-40px",
+            left: "80px",
+            cursor: "pointer",
+            color:"black",
+            display:"flex",
+            justifyContent:"center",
+            border:"2px solid red",
+            backgroundColor:"white",
+            display:"none"
+          }}
+        >
+          {searchError}
+        </div>
+      </div>
+
+      <MapContainer
+        center={countyCenter}
+        zoom={10}
+        minZoom={10}
+        scrollWheelZoom={true}
+        style={{ height: "100%", width: "100%" }}
+        maxBounds={LEECOUNTY_BOUNDS}
+        maxBoundsViscosity={1.0}
+      >
+        <TileLayer
+          className="dark-map"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        {/*create a custom hook to move the map when user click on the item */}
+        <MoveMap selectedLocation={locationMove} markerRef={markerRef} />
+        {leeCounty && (
+          <GeoJSON data={leeCounty} style={{ color: "red", weight: 4 }} />
+        )}
+        {/* <SearchAddress
+        setSelectedAddress={setSelectedAddress}
+        checkBound={checkBound}
+      /> */}
+        {isInside ? (
+          <MoveMap selectedLocation={selectedAddress} />
+        ) : (
+          <div className=""></div>
+        )}
+        ;
+        {leeCounty && (
+          <Polygon
+            positions={[
+              [
+                [-90, -180],
+                [-90, 180],
+                [90, 180],
+                [90, -180],
+                [-90, -180],
+              ],
+              LEECOUNTY_BOUNDARY,
+            ]}
+            pathOptions={{
+              fillColor: "black",
+              fillOpacity: 0.4,
+              stroke: false,
+            }}
+          />
+        )}
+        <MarkerClusterGroup disableClusteringAtZoom={16}>
+          {finalList.map((incident, index) => (
+            <Marker
+              key={incident.id}
+              position={[incident.lat, incident.lng]}
+              icon={createIncidentIcon(incident.nature)}
+              ref={idPopup === incident.id ? markerRef : null}
+            >
+              <Popup>
+                <div className="popup-address">
+                  <h3>{incident.address}</h3>
+                  <h5>{incident.city}</h5>
+                </div>
+                <div className="popup-line"></div>
+                <div className="popup-content">
+                  <h4 className="popup-content-normal">{`Incident Number: ${incident.incidentNumber}`}</h4>
+                  <h4 className="popup-content-normal">
+                    Type:
+                    <span
+                      style={{ fontSize: "16px", color: "#ca745f" }}
+                    >{` ${incident.nature}`}</span>
+                  </h4>
+                  <h4 className="popup-content-normal">{`Disposition: ${incident.disposition}`}</h4>
+                  <h4 className="popup-content-normal">{`Date: ${incident.occuredDate.split(".")[0]}`}</h4>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MarkerClusterGroup>
+      </MapContainer>
+    </div>
   );
 }
 

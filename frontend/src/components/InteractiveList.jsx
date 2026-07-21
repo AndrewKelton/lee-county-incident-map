@@ -85,7 +85,7 @@ function InteractiveList({
         />
         {searchResult.length !== 0 && (
           <i
-            class="fa-solid fa-xmark search-delete-icon"
+            className="fa-solid fa-xmark search-delete-icon"
             onClick={resetText}
           ></i>
         )}
