@@ -293,12 +293,21 @@ norm = PowerNorm(gamma=0.5)(warped)
 # apply color-coding from png file to the latitude/longitude re-projection
 rgba = cmap(norm)
 
+# write the colorized array out to a PNG file
+plt.imsave("density_overlay.png", rgba)
+
+#----------------------API functionality below--------------------------------------------------------------------
+
+# API will transmit PNG image file (as URL or base64-encoded string) and boundary coordinates to frontend as JSON
+
+#----------------------Frontend functionality below---------------------------------------------------------------
+
 # create a map centered on the boundaries of the density surface values
 m = folium.Map(location=[(bounds.top + bounds.bottom)/2, (bounds.left + bounds.right)/2], zoom_start=12)
 
-# lay the colorized image of the lat/long re-projected tif file onto the map
+# lay the colorized PNG image of the lat/long re-projected tif file onto the map
 folium.raster_layers.ImageOverlay(
-    image=rgba,
+    image="density_overlay.png",
     bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
     opacity=0.8,
 ).add_to(m)
