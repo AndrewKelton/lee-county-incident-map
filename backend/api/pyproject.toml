@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "Public read API over the Lee County incident database"
 requires-python = ">=3.12"
 dependencies = [
+    "argon2-cffi>=25.1",
     "flask>=3.1",
     "flask-cors>=6.0",
     "psycopg[binary,pool]>=3.3",
+    "pyjwt>=2.10",
     "python-dotenv>=1.2",
 ]
 

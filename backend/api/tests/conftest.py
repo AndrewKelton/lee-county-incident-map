@@ -6,6 +6,9 @@ import pytest
 
 from leecad_api.app import create_app
 
+os.environ.setdefault("JWT_SECRET", "test-only-secret-at-least-32-bytes-long")
+os.environ.setdefault("COOKIE_SECURE", "false")
+
 LEE = "lee_county"
 CCM = "community_crime_map"
 TRAFFIC = "lee_county_traffic"
@@ -79,3 +82,10 @@ def client(seeded):
 @pytest.fixture
 def app_for_spec(database_url):
     return create_app(database_url)
+
+
+@pytest.fixture
+def auth_client(database_url):
+    with psycopg.connect(database_url, autocommit=True) as conn:
+        conn.execute("TRUNCATE users CASCADE")
+    return create_app(database_url).test_client()

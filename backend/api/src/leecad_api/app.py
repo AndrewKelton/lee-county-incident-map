@@ -8,8 +8,8 @@ from psycopg import OperationalError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool, PoolTimeout
 
+from leecad_api import auth, queries
 from leecad_api import filters as filters_module
-from leecad_api import queries
 
 API = "/api/v1"
 
@@ -20,9 +20,11 @@ def create_app(database_url: str | None = None) -> Flask:
     origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 
     app = Flask(__name__)
+    app.config["JWT_SECRET"] = os.environ["JWT_SECRET"]
     app.pool = ConnectionPool(url, min_size=1, max_size=8, timeout=5, open=True,
                               kwargs={"row_factory": dict_row})
-    CORS(app, resources={rf"{API}/*": {"origins": origins}})
+    CORS(app, resources={rf"{API}/*": {"origins": origins}}, supports_credentials=True)
+    app.register_blueprint(auth.bp)
 
     @app.errorhandler(ValueError)
     def bad_request(exc):
