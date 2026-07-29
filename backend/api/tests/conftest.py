@@ -35,6 +35,8 @@ ROWS = [
 
     (TRAFFIC, "T-001", at(17), "CRASH", "8 CROSS ST", "FORT MYERS", 26.62, -81.86, "EXACT"),
 
+    (LEE, "25-011", at(19), "ASSAULT", "12 NOWHERE LN", "FORT MYERS", None, None, None),
+
     (LEE, "25-008", at(18), "ASSAULT", "9 TIE ST", "FORT MYERS", 26.61, -81.84, "EXACT"),
     (LEE, "25-009", at(18), "ASSAULT", "10 TIE ST", "FORT MYERS", 26.61, -81.84, "EXACT"),
     (LEE, "25-010", at(18), "ASSAULT", "11 TIE ST", "FORT MYERS", 26.61, -81.84, "EXACT"),

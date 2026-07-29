@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
@@ -38,7 +39,14 @@ def create_app(database_url: str | None = None) -> Flask:
 
     @app.get(f"{API}/incidents")
     def incidents():
+        fmt = request.args.get("format", "json")
+        if fmt not in ("json", "geojson"):
+            raise ValueError("format must be json or geojson")
+
         parsed = filters_module.parse(request.args)
+        if fmt == "geojson" and "mapped" not in request.args:
+            parsed = replace(parsed, mapped_only=True)
+
         limit = filters_module.parse_limit(request.args)
         sql, params = queries.incident_list(parsed, limit, request.args.get("cursor"))
 
@@ -47,8 +55,17 @@ def create_app(database_url: str | None = None) -> Flask:
             revision = conn.execute("SELECT revision FROM dataset_revision").fetchone()
 
         next_cursor = queries.encode_cursor(rows[limit - 1]) if len(rows) > limit else None
+        page = rows[:limit]
+
+        if fmt == "geojson":
+            return jsonify({
+                "type": "FeatureCollection",
+                "features": [_feature(r) for r in page],
+                "next_cursor": next_cursor,
+                "dataset_revision": revision["revision"],
+            })
         return jsonify({
-            "incidents": [_serialize(r) for r in rows[:limit]],
+            "incidents": [_serialize(r) for r in page],
             "next_cursor": next_cursor,
             "dataset_revision": revision["revision"],
         })
@@ -58,3 +75,14 @@ def create_app(database_url: str | None = None) -> Flask:
 
 def _serialize(row: dict) -> dict:
     return {**row, "occurred_at": row["occurred_at"].isoformat()}
+
+
+def _feature(row: dict) -> dict:
+    properties = _serialize(row)
+    lon, lat = properties.pop("lon"), properties.pop("lat")
+    return {
+        "type": "Feature",
+        "id": f"{row['source']}:{row['source_incident_id']}",
+        "geometry": None if lat is None else {"type": "Point", "coordinates": [lon, lat]},
+        "properties": properties,
+    }
