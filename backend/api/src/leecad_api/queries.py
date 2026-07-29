@@ -107,6 +107,11 @@ def _conditions(filters) -> tuple[list[str], list]:
     return where, params
 
 
+INCIDENT_DETAIL = (
+    COLUMNS + FROM_AND_JOINS
+    + f" WHERE {NOT_A_DUPLICATE} AND i.source = %s AND i.source_incident_id = %s"
+)
+
 STATS_SUMMARY = """
     WITH filtered AS (
         SELECT COALESCE(nc.category_code, 'OTHER') AS category,

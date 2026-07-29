@@ -48,6 +48,14 @@ def create_app(database_url: str | None = None) -> Flask:
                 cached_types.update(types=rows, dataset_revision=revision)
         return jsonify(cached_types)
 
+    @app.get(f"{API}/incidents/<source>/<source_incident_id>")
+    def incident_detail(source, source_incident_id):
+        with app.pool.connection() as conn:
+            row = conn.execute(queries.INCIDENT_DETAIL, (source, source_incident_id)).fetchone()
+        if row is None:
+            return jsonify({"error": "incident not found"}), 404
+        return jsonify(_serialize(row))
+
     @app.get(f"{API}/stats/summary")
     def stats_summary():
         parsed = filters_module.parse(request.args)
