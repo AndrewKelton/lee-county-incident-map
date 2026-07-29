@@ -3,30 +3,12 @@ from pathlib import Path
 import psycopg
 
 from leecad.paths import STREET_QUERIES
-
-SCHEMA = """
-    CREATE TABLE IF NOT EXISTS crawl_queries (
-        query           TEXT PRIMARY KEY,
-        parent_query    TEXT,
-        canonical       TEXT NOT NULL,
-        depth           INTEGER NOT NULL,
-        status          TEXT NOT NULL DEFAULT 'pending', --pending|in_progress|done|truncated|failed
-        worker_id       TEXT,
-        started_at      TIMESTAMPTZ,
-        completed_at    TIMESTAMPTZ,
-        result_count    INTEGER,
-        error_message   TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_crawl_status     ON crawl_queries(status);
-    CREATE INDEX IF NOT EXISTS idx_crawl_canonical  ON crawl_queries(canonical);
-"""
+from leecad.postgres_schema import require_tables
 
 STALE_AFTER_MINUTES = 240
 
-def init_schema(conn: psycopg.Connection) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SCHEMA)
-    conn.commit()
+def require_schema(conn: psycopg.Connection) -> None:
+    require_tables(conn, {"crawl_queries"})
 
 def seed(conn: psycopg.Connection, path: Path = STREET_QUERIES) -> int:
     names = [line.strip().upper() for line in path.read_text().splitlines() if line.strip()]

@@ -1,0 +1,54 @@
+name: backend database CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/database/**'
+      - '.github/workflows/backend-database-ci.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'backend/database/**'
+      - '.github/workflows/backend-database-ci.yml'
+
+concurrency:
+  group: backend-database-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend/database
+    env:
+      ALEMBIC_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/database/uv.lock
+      - run: uv sync --locked
+      - name: Apply every migration
+        run: uv run alembic upgrade head
+      - name: Roll back every migration
+        run: uv run alembic downgrade base
+      - name: Reapply, which fails if a downgrade left anything behind
+        run: uv run alembic upgrade head
+      - run: uv run alembic current --check-heads

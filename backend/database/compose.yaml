@@ -1,0 +1,22 @@
+name: lee-county-backend
+
+services:
+  database:
+    image: postgis/postgis:18-3.6
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-leecad}
+      POSTGRES_USER: ${POSTGRES_USER:-leecad}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leecad-local-only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:

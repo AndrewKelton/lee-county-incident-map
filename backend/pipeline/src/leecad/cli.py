@@ -7,7 +7,7 @@ One-shot / local:
     leecad flush-s3                    drain the S3 live-feed buffer into the store (ops)
 
 Long-running crawl workers (hourly outbox sync; see README "Bulk historical extraction"):
-    leecad crawl init [seed_path]      create crawl schema + seed the street-query queue
+    leecad crawl init [seed_path]      verify schema + seed the street-query queue
     leecad crawl work <worker_id>      harvest worker loop
     leecad crawl geocode <worker_id>   geocoding worker loop
     leecad crawl test <worker_id>      bounded 2-tick smoke against the real API
@@ -85,9 +85,9 @@ def _cmd_crawl(args) -> None:
 
         conn = _connect_neon()
         path = Path(args.seed) if args.seed else STREET_QUERIES
-        coordinator.init_schema(conn)
+        coordinator.require_schema(conn)
         n = coordinator.seed(conn, path)
-        print(f"schema ready; seeded {n} street queries")
+        print(f"schema verified; seeded {n} street queries")
     elif args.crawl_cmd == "work":
         from leecad.crawl.worker import run_harvest
         run_harvest(args.worker_id)
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> None:
     sp = sub.add_parser("crawl", help="bulk historical crawl (see README)")
     sp.set_defaults(fn=_cmd_crawl)
     csub = sp.add_subparsers(dest="crawl_cmd", required=True)
-    c = csub.add_parser("init", help="create crawl schema + seed the street-query queue")
+    c = csub.add_parser("init", help="verify crawl schema + seed the street-query queue")
     c.add_argument("seed", nargs="?", help="seed list path (default: data/seeds/street_queries.txt)")
     for name, hlp in [
         ("work", "harvest worker loop"),

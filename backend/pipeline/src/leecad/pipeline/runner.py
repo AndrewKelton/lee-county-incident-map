@@ -14,7 +14,23 @@ def fetch_source(name: str) -> list[NormalizedIncident]:
         raise ValueError(f"Unknown source: {name!r}. Available: {sorted(REGISTRY)}")
     adapter = REGISTRY[name]()
     fetched_at = datetime.now(timezone.utc)
-    return [adapter.normalize(r, fetched_at) for r in adapter.fetch_raw()]
+
+    raw = adapter.fetch_raw()
+    incidents, failed = [], []
+    for record in raw:
+        try:
+            incidents.append(adapter.normalize(record, fetched_at))
+        except Exception as exc:
+            failed.append(exc)
+
+    if failed:
+        print(f"[{name}] skipped {len(failed)} of {len(raw)} records; first: {failed[0]!r}")
+    if raw and not incidents:
+        # A quiet feed returns nothing and that is fine. Every record failing means the upstream
+        # shape changed, and returning an empty batch would hide that.
+        raise RuntimeError(f"[{name}] all {len(raw)} records failed to normalize: {failed[0]!r}")
+
+    return incidents
 
 def run_source(name: str) -> dict:
     """Fetch + normalize + upsert in one shot (local/manual harvest)."""
