@@ -1,0 +1,69 @@
+name: backend-api CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/api/**'
+      - 'backend/database/**'
+      - '.github/workflows/backend-api-ci.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'backend/api/**'
+      - 'backend/database/**'
+      - '.github/workflows/backend-api-ci.yml'
+
+concurrency:
+  group: backend-api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_DB: leecad
+          POSTGRES_USER: leecad
+          POSTGRES_PASSWORD: leecad-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U leecad -d leecad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ALEMBIC_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
+      TEST_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/*/uv.lock
+
+      - name: Install database dependencies
+        working-directory: backend/database
+        run: uv sync --locked
+
+      - name: Apply migrations
+        working-directory: backend/database
+        run: uv run alembic upgrade head
+
+      - name: Install API dependencies
+        working-directory: backend/api
+        run: uv sync --locked
+
+      - name: Lint
+        working-directory: backend/api
+        run: uv run ruff check .
+
+      - name: Test
+        working-directory: backend/api
+        run: uv run pytest
