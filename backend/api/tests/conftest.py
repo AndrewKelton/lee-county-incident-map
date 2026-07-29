@@ -74,3 +74,8 @@ def seeded(database_url):
 @pytest.fixture
 def client(seeded):
     return create_app(seeded).test_client()
+
+
+@pytest.fixture
+def app_for_spec(database_url):
+    return create_app(database_url)

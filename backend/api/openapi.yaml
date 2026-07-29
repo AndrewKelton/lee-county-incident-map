@@ -1,0 +1,346 @@
+openapi: 3.1.0
+
+info:
+  title: Lee County Incident API
+  version: "1.0"
+  description: |
+    Read-only access to Lee County public safety incidents.
+
+    Three data rules are applied by every endpoint, so callers never handle them:
+
+    - The same incident is reported by both the Sheriff feed and the
+      CommunityCrimeMap import for about 21,000 records. Only the Sheriff copy
+      is returned.
+    - Where the Sheriff's coordinates are missing, untrusted or outside the
+      county, CommunityCrimeMap's coordinates are used instead. A trusted
+      Sheriff pin is never replaced.
+    - Raw `nature` text is mapped to a stable `category` code. Unmapped values
+      read as `OTHER`.
+
+servers:
+  - url: http://localhost:5001
+    description: local development
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Liveness and data freshness
+      responses:
+        "200":
+          description: The service and database are reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  dataset_revision: { type: integer }
+        "503":
+          description: The database is unreachable.
+
+  /api/v1/incidents:
+    get:
+      summary: List incidents
+      description: |
+        Newest first. Paginate with `cursor`, not an offset, so results stay
+        stable while new incidents arrive.
+      parameters:
+        - $ref: "#/components/parameters/days"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/city"
+        - $ref: "#/components/parameters/source"
+        - $ref: "#/components/parameters/bbox"
+        - $ref: "#/components/parameters/mapped"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: format
+          in: query
+          description: |
+            `geojson` returns a FeatureCollection ready for Leaflet, and
+            defaults `mapped` to true unless you set it explicitly.
+          schema:
+            type: string
+            enum: [json, geojson]
+            default: json
+      responses:
+        "200":
+          description: Matching incidents.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/IncidentPage"
+                  - $ref: "#/components/schemas/FeatureCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/incidents/{source}/{source_incident_id}:
+    get:
+      summary: One incident
+      description: |
+        Both path segments are needed: `source_incident_id` alone is not unique
+        across sources. Returns 404 for a CommunityCrimeMap record that is a
+        duplicate of a Sheriff record, matching what the list returns.
+      parameters:
+        - name: source
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [lee_county, lee_county_traffic, community_crime_map]
+        - name: source_incident_id
+          in: path
+          required: true
+          schema: { type: string }
+          example: "25-001"
+      responses:
+        "200":
+          description: The incident.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "404":
+          description: No such incident.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/incident-types:
+    get:
+      summary: Category catalog
+      description: |
+        Every active category with its incident count. Build filter menus from
+        this rather than hardcoding codes, which change as new categories are
+        added. Counts cover the whole dataset and ignore query filters.
+      responses:
+        "200":
+          description: Categories in display order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dataset_revision: { type: integer }
+                  types:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code: { type: string, example: VIOLENT }
+                        label: { type: string, example: Violent Crime }
+                        sort_order: { type: integer }
+                        incident_count: { type: integer }
+
+  /api/v1/stats/summary:
+    get:
+      summary: Aggregates for charts
+      description: |
+        Accepts the same filters as the incident list, so a chart always matches
+        the map beside it. All time grouping uses America/New_York.
+      parameters:
+        - $ref: "#/components/parameters/days"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/city"
+        - $ref: "#/components/parameters/source"
+        - $ref: "#/components/parameters/bbox"
+        - $ref: "#/components/parameters/mapped"
+      responses:
+        "200":
+          description: Totals and breakdowns.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stats" }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  parameters:
+    days:
+      name: days
+      in: query
+      description: Look back this many days from now. Cannot be combined with from/to.
+      schema: { type: integer, minimum: 1, maximum: 3660 }
+      example: 30
+    from:
+      name: from
+      in: query
+      description: Start date, inclusive, read as Eastern time.
+      schema: { type: string, format: date }
+      example: "2026-07-01"
+    to:
+      name: to
+      in: query
+      description: End date, inclusive, read as Eastern time.
+      schema: { type: string, format: date }
+    category:
+      name: category
+      in: query
+      description: |
+        Comma separated category codes from /incident-types. Selecting OTHER
+        also returns incidents whose nature is not mapped yet.
+      schema: { type: string }
+      example: BURGLARY,THEFT
+    city:
+      name: city
+      in: query
+      description: |
+        Comma separated canonical city names. Alternate spellings in the source
+        data are matched automatically, so CAPE CORAL also finds CORAL.
+      schema: { type: string }
+      example: FORT MYERS
+    source:
+      name: source
+      in: query
+      description: Comma separated feed names.
+      schema: { type: string }
+      example: lee_county,lee_county_traffic
+    bbox:
+      name: bbox
+      in: query
+      description: Map viewport as west,south,east,north in WGS84 degrees.
+      schema: { type: string }
+      example: "-82.35,26.27,-81.50,26.90"
+    mapped:
+      name: mapped
+      in: query
+      description: |
+        When true, only incidents with a coordinate that is inside Lee County
+        and trusted. Defaults to false for JSON and true for GeoJSON.
+      schema: { type: boolean }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    cursor:
+      name: cursor
+      in: query
+      description: Value of next_cursor from the previous page.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: A query parameter was invalid. The message says which one.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: days must be a whole number }
+
+    Incident:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [lee_county, lee_county_traffic, community_crime_map]
+        source_incident_id: { type: string, example: "25-001" }
+        occurred_at: { type: string, format: date-time }
+        nature:
+          type: [string, "null"]
+          description: Raw text from the source feed. Not a stable value.
+          example: BURGLARY - RESIDENCE
+        category:
+          type: string
+          description: Stable code. Filter on this, not on nature.
+          example: BURGLARY
+        address: { type: [string, "null"] }
+        city:
+          type: [string, "null"]
+          description: Canonical spelling. Null when the source had no usable city.
+        lat: { type: [number, "null"] }
+        lon: { type: [number, "null"] }
+        disposition: { type: [string, "null"] }
+        status:
+          type: [string, "null"]
+          description: Traffic feed only.
+
+    IncidentPage:
+      type: object
+      properties:
+        incidents:
+          type: array
+          items: { $ref: "#/components/schemas/Incident" }
+        next_cursor:
+          type: [string, "null"]
+          description: Null on the last page.
+        dataset_revision: { type: integer }
+
+    FeatureCollection:
+      type: object
+      properties:
+        type: { type: string, const: FeatureCollection }
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, const: Feature }
+              id:
+                type: string
+                description: source and incident id joined by a colon.
+                example: lee_county:25-001
+              geometry:
+                type: [object, "null"]
+                description: Null when the incident has no coordinates.
+                properties:
+                  type: { type: string, const: Point }
+                  coordinates:
+                    type: array
+                    description: Longitude first, then latitude.
+                    items: { type: number }
+                    minItems: 2
+                    maxItems: 2
+              properties: { $ref: "#/components/schemas/Incident" }
+        next_cursor: { type: [string, "null"] }
+        dataset_revision: { type: integer }
+
+    Stats:
+      type: object
+      properties:
+        total: { type: integer }
+        by_category:
+          type: array
+          description: Largest first.
+          items:
+            type: object
+            properties:
+              category: { type: string }
+              count: { type: integer }
+        by_day:
+          type: array
+          description: Ascending by date, in Eastern time.
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              count: { type: integer }
+        by_hour:
+          type: array
+          description: |
+            Local hour 0 to 23. Incidents recorded at exactly midnight are left
+            out, because the CommunityCrimeMap import uses midnight to mean
+            "time not recorded" and including them invents a spike.
+          items:
+            type: object
+            properties:
+              hour: { type: integer, minimum: 0, maximum: 23 }
+              count: { type: integer }
+        excluded_from_by_hour:
+          type: integer
+          description: How many incidents by_hour left out.
+        by_weekday:
+          type: array
+          description: 1 is Monday, 7 is Sunday.
+          items:
+            type: object
+            properties:
+              weekday: { type: integer, minimum: 1, maximum: 7 }
+              count: { type: integer }
+        dataset_revision: { type: integer }
