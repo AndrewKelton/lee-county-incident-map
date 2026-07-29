@@ -23,7 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        # Migration 0003 creates the postgis extension, so plain postgres:18 cannot run the chain.
+        image: postgis/postgis:18-3.6
         env:
           POSTGRES_PASSWORD: postgres
         ports:
