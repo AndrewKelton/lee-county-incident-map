@@ -40,6 +40,8 @@ jobs:
     env:
       ALEMBIC_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
       TEST_DATABASE_URL: postgresql://leecad:leecad-ci-only@localhost:5432/leecad
+      JWT_SECRET: ci-only-secret-at-least-32-bytes-long
+      COOKIE_SECURE: "false"
     steps:
       - uses: actions/checkout@v4
 

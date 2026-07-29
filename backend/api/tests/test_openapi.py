@@ -16,7 +16,7 @@ def spec():
 def app_routes(app):
     routes = set()
     for rule in app.url_map.iter_rules():
-        if rule.rule.startswith("/api/") and "GET" in rule.methods:
+        if rule.rule.startswith("/api/") and rule.methods & {"GET", "POST"}:
             routes.add(re.sub(r"<(?:[^>:]+:)?([^>]+)>", r"{\1}", rule.rule))
     return routes
 

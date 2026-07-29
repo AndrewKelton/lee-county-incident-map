@@ -157,7 +157,69 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/v1/auth/register:
+    post:
+      summary: Create an account
+      description: |
+        Signs the new account in as well, so a client never has to call login
+        straight after registering.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "201":
+          description: The account was created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/RefreshCookie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: That email already has an account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/auth/login:
+    post:
+      summary: Start a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/RefreshCookie"
+        "401":
+          description: |
+            Wrong password, or no such account. The two are deliberately
+            indistinguishable so the endpoint cannot be used to find out who
+            has an account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
 components:
+  headers:
+    RefreshCookie:
+      description: |
+        The refresh token, as an HttpOnly cookie scoped to `/api/v1/auth`.
+        JavaScript cannot read it and the browser only sends it back to the
+        auth routes. Cross-origin callers need `credentials: "include"`.
+      schema: { type: string }
+
   parameters:
     days:
       name: days
@@ -233,6 +295,29 @@ components:
       type: object
       properties:
         error: { type: string, example: days must be a whole number }
+
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+
+    Session:
+      type: object
+      description: |
+        `access_token` goes in an `Authorization: Bearer` header and lasts
+        `expires_in` seconds. The refresh token is not in this body; it is in
+        the cookie.
+      properties:
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            email: { type: string }
+            created_at: { type: string, format: date-time }
+        access_token: { type: string }
+        expires_in: { type: integer, example: 900 }
 
     Incident:
       type: object

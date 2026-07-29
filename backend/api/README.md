@@ -1,12 +1,13 @@
 # leecad-api
 
-Read-only API over the incident database. Its own uv project, like `pipeline` and `database`. Shares
-a database URL with them and nothing else; the schema belongs to `backend/database`'s migrations.
+API over the incident database. Its own uv project, like `pipeline` and `database`. Shares a
+database URL with them and nothing else; the schema belongs to `backend/database`'s migrations.
+Incidents are read-only; `users` and `refresh_tokens` are the only tables it writes.
 
 ## Run
 
 ```sh
-cp .env.example .env          # DATABASE_URL should be a read-only role
+cp .env.example .env          # set DATABASE_URL and JWT_SECRET
 uv sync
 uv run flask --app leecad_api.app:create_app run --port 5001
 ```
@@ -28,6 +29,8 @@ TEST_DATABASE_URL=postgresql://leecad:leecad-local-only@localhost:5433/leecad uv
 | `GET /api/v1/incidents/{source}/{id}` | one incident |
 | `GET /api/v1/incident-types` | categories with counts, for filter menus |
 | `GET /api/v1/stats/summary` | totals and breakdowns for charts |
+| `POST /api/v1/auth/register` | create an account, signed in |
+| `POST /api/v1/auth/login` | start a session |
 
 Filters: `days` or `from`/`to`, `category`, `city`, `source`, `bbox`, `mapped`. Paging: `limit`,
 `cursor`.
