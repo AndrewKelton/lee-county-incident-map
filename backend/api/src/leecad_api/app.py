@@ -48,6 +48,17 @@ def create_app(database_url: str | None = None) -> Flask:
                 cached_types.update(types=rows, dataset_revision=revision)
         return jsonify(cached_types)
 
+    @app.get(f"{API}/stats/summary")
+    def stats_summary():
+        parsed = filters_module.parse(request.args)
+        sql, params = queries.stats_summary(parsed)
+
+        with app.pool.connection() as conn:
+            stats = conn.execute(sql, params).fetchone()
+            revision = conn.execute("SELECT revision FROM dataset_revision").fetchone()
+
+        return jsonify({**stats, "dataset_revision": revision["revision"]})
+
     @app.get(f"{API}/incidents")
     def incidents():
         fmt = request.args.get("format", "json")

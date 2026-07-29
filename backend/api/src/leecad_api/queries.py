@@ -107,6 +107,46 @@ def _conditions(filters) -> tuple[list[str], list]:
     return where, params
 
 
+STATS_SUMMARY = """
+    WITH filtered AS (
+        SELECT COALESCE(nc.category_code, 'OTHER') AS category,
+               i.occurred_at AT TIME ZONE 'America/New_York' AS local_time
+        {joins}
+        WHERE {where}
+    )
+    SELECT
+        (SELECT count(*) FROM filtered) AS total,
+
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('category', category, 'count', n)
+                                   ORDER BY n DESC, category), '[]'::jsonb)
+           FROM (SELECT category, count(*) AS n FROM filtered GROUP BY 1) x) AS by_category,
+
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', d, 'count', n)
+                                   ORDER BY d), '[]'::jsonb)
+           FROM (SELECT local_time::date::text AS d, count(*) AS n
+                   FROM filtered GROUP BY 1) x) AS by_day,
+
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('hour', h, 'count', n)
+                                   ORDER BY h), '[]'::jsonb)
+           FROM (SELECT extract(hour FROM local_time)::int AS h, count(*) AS n
+                   FROM filtered WHERE local_time::time <> '00:00:00' GROUP BY 1) x) AS by_hour,
+
+        (SELECT count(*) FROM filtered WHERE local_time::time = '00:00:00')
+            AS excluded_from_by_hour,
+
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('weekday', w, 'count', n)
+                                   ORDER BY w), '[]'::jsonb)
+           FROM (SELECT extract(isodow FROM local_time)::int AS w, count(*) AS n
+                   FROM filtered GROUP BY 1) x) AS by_weekday
+"""
+
+
+def stats_summary(filters) -> tuple[str, list]:
+    where, params = _conditions(filters)
+    sql = STATS_SUMMARY.format(joins=FROM_AND_JOINS, where=" AND ".join(where))
+    return sql, params
+
+
 def incident_list(filters, limit: int, cursor: str | None) -> tuple[str, list]:
     where, params = _conditions(filters)
 
