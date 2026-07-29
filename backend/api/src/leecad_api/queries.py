@@ -35,6 +35,20 @@ COLUMNS = """
 
 ORDER = " ORDER BY i.occurred_at DESC, i.source DESC, i.source_incident_id DESC"
 
+INCIDENT_TYPES = f"""
+    SELECT c.code, c.label, c.sort_order, COALESCE(counted.n, 0) AS incident_count
+    FROM incident_categories c
+    LEFT JOIN (
+        SELECT COALESCE(nc.category_code, 'OTHER') AS code, count(*) AS n
+        FROM incidents i
+        LEFT JOIN nature_categories nc ON nc.nature = i.nature
+        WHERE {NOT_A_DUPLICATE}
+        GROUP BY 1
+    ) counted ON counted.code = c.code
+    WHERE c.active
+    ORDER BY c.sort_order, c.code
+"""
+
 
 def encode_cursor(row: dict) -> str:
     raw = f"{row['occurred_at'].isoformat()}|{row['source']}|{row['source_incident_id']}"

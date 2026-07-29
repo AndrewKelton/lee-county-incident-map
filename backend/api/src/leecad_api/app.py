@@ -37,6 +37,17 @@ def create_app(database_url: str | None = None) -> Flask:
             return jsonify({"status": "error", "database": "unreachable"}), 503
         return jsonify({"status": "ok", "dataset_revision": row["revision"]})
 
+    cached_types: dict = {}
+
+    @app.get(f"{API}/incident-types")
+    def incident_types():
+        with app.pool.connection() as conn:
+            revision = conn.execute("SELECT revision FROM dataset_revision").fetchone()["revision"]
+            if cached_types.get("dataset_revision") != revision:
+                rows = conn.execute(queries.INCIDENT_TYPES).fetchall()
+                cached_types.update(types=rows, dataset_revision=revision)
+        return jsonify(cached_types)
+
     @app.get(f"{API}/incidents")
     def incidents():
         fmt = request.args.get("format", "json")
