@@ -1,11 +1,14 @@
 import os
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from psycopg import OperationalError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool, PoolTimeout
+
+from leecad_api import filters as filters_module
+from leecad_api import queries
 
 API = "/api/v1"
 
@@ -20,6 +23,10 @@ def create_app(database_url: str | None = None) -> Flask:
                               kwargs={"row_factory": dict_row})
     CORS(app, resources={rf"{API}/*": {"origins": origins}})
 
+    @app.errorhandler(ValueError)
+    def bad_request(exc):
+        return jsonify({"error": str(exc)}), 400
+
     @app.get(f"{API}/health")
     def health():
         try:
@@ -29,4 +36,25 @@ def create_app(database_url: str | None = None) -> Flask:
             return jsonify({"status": "error", "database": "unreachable"}), 503
         return jsonify({"status": "ok", "dataset_revision": row["revision"]})
 
+    @app.get(f"{API}/incidents")
+    def incidents():
+        parsed = filters_module.parse(request.args)
+        limit = filters_module.parse_limit(request.args)
+        sql, params = queries.incident_list(parsed, limit, request.args.get("cursor"))
+
+        with app.pool.connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            revision = conn.execute("SELECT revision FROM dataset_revision").fetchone()
+
+        next_cursor = queries.encode_cursor(rows[limit - 1]) if len(rows) > limit else None
+        return jsonify({
+            "incidents": [_serialize(r) for r in rows[:limit]],
+            "next_cursor": next_cursor,
+            "dataset_revision": revision["revision"],
+        })
+
     return app
+
+
+def _serialize(row: dict) -> dict:
+    return {**row, "occurred_at": row["occurred_at"].isoformat()}
