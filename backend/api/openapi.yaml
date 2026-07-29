@@ -211,7 +211,79 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/auth/refresh:
+    post:
+      summary: Trade the refresh cookie for a new access token
+      description: |
+        Send no body. The browser supplies the cookie, so a cross-origin caller
+        needs `credentials: "include"`.
+
+        A refresh token works exactly once. This deletes the one presented and
+        sets a new one, so replaying an old cookie fails.
+      responses:
+        "200":
+          description: A new access token and a new refresh cookie.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/RefreshCookie"
+        "401":
+          description: |
+            The cookie is missing, already used, expired, or belongs to a
+            deleted account. The cookie is cleared, so the client should send
+            the user back to the login screen.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/auth/logout:
+    post:
+      summary: End this session
+      description: |
+        Send no body. Deletes the presented refresh token and clears the
+        cookie. Other devices stay signed in. Always succeeds, including when
+        there was no session to end.
+      responses:
+        "200":
+          description: Signed out.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: signed out }
+
+  /api/v1/users/me:
+    get:
+      summary: The signed-in account
+      security:
+        - accessToken: []
+      responses:
+        "200":
+          description: The account the access token belongs to.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: |
+            No token, or one that is malformed, expired, signed with another
+            key, or belongs to a deleted account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
 components:
+  securitySchemes:
+    accessToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        The `access_token` from register, login or refresh, sent as
+        `Authorization: Bearer <token>`. Valid for 15 minutes.
+
   headers:
     RefreshCookie:
       description: |
@@ -303,6 +375,13 @@ components:
         email: { type: string, format: email, maxLength: 254 }
         password: { type: string, minLength: 8, maxLength: 128 }
 
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        created_at: { type: string, format: date-time }
+
     Session:
       type: object
       description: |
@@ -310,12 +389,7 @@ components:
         `expires_in` seconds. The refresh token is not in this body; it is in
         the cookie.
       properties:
-        user:
-          type: object
-          properties:
-            id: { type: integer }
-            email: { type: string }
-            created_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
         access_token: { type: string }
         expires_in: { type: integer, example: 900 }
 

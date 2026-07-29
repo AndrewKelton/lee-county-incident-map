@@ -31,6 +31,9 @@ TEST_DATABASE_URL=postgresql://leecad:leecad-local-only@localhost:5433/leecad uv
 | `GET /api/v1/stats/summary` | totals and breakdowns for charts |
 | `POST /api/v1/auth/register` | create an account, signed in |
 | `POST /api/v1/auth/login` | start a session |
+| `POST /api/v1/auth/refresh` | swap the refresh cookie for a new access token |
+| `POST /api/v1/auth/logout` | end this session |
+| `GET /api/v1/users/me` | the signed-in account, needs a bearer token |
 
 Filters: `days` or `from`/`to`, `category`, `city`, `source`, `bbox`, `mapped`. Paging: `limit`,
 `cursor`.
