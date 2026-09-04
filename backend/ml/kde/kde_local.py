@@ -203,7 +203,7 @@ def load_points() -> np.ndarray:
     longitude = incidents_df["lon"].to_numpy()
 
     # NAD 1983 StatePlane Florida West FIPS 0902 Feet
-    transformer = Transformer.from_crs("EPSG:4269", "EPSG:2882", always_xy=True)
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2882", always_xy=True)
     easting, northing = transformer.transform(longitude, latitude)
 
     points = np.column_stack([easting, northing])
