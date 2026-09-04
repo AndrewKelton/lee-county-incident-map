@@ -23,26 +23,173 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_origin
 import folium
 
-# REPLACE CLUSTER LEVEL ASSIGNMENTS WITH CALL TO DBSCAN MODULE DURING APP INTEGRATION
-# cluster level for testing (-1 == noise; 0 = less dense; 1 = more dense)
-dbscan_cluster_level = np.array([0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 1, 
-                        0, 0, 0, -1, 1, 1, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 
-                        0, 1, -1, 1, 1, 1, 1, 1, -1, 1, 1, 0, 1, -1, 0, 1, 1, 0, 1, 1, 1, 
-                        1, 1, -1, 0, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 0, 0, 0, -1, 1, 1, 0, 
-                        -1, 0, 1, 1, -1, 1, 0, -1, -1, 1, 0, 1, 1, -1, 1, -1, 1, 1, 1, 1, 
-                        -1, 1, 0, 1, 1, 0, 1, 0, -1, 1, 0, 0, 1, 1, -1, 0, -1, 1, 1, 1, -1, 
-                        1, 0, 1, -1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, -1, 1, 0, 1, 1, 1, 1, 1, 
-                        -1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, -1, 1, 1, 1, -1, 1, 0, 1, -1, 
-                        -1, 0, 0, 1, 1, -1, 0, 0, -1, 1, 1, -1, 1, 1, 1, 1, 0, 0, -1, 0, 1, 
-                        1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 
-                        1, 1, -1, -1, -1, 1, 0, 0, 1, 1, -1, 1, 1, 0, 0, 0, 1, -1, -1, 0, 1, 
-                        -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 0, 1, -1, 0])
+class KDE_Heatmap:
+    """Heatmap class for generating a png image of a KDE density surface."""
 
-#CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
-CSV_PATH = os.path.join(
-    os.path.dirname(__file__), 
-    "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv"
-)
+    def __init__(self, points, cluster_levels, bandwidths, x_min, y_min, x_max, y_max, increment):
+
+        self.points = points
+        self.cluster_levels = cluster_levels
+        self.bandwidths = bandwidths
+        self.x_min_lattice = x_min
+        self.y_min_lattice = y_min
+        self.x_max_lattice = x_max
+        self.y_max_lattice = y_max
+        self.increment_lattice = increment
+        self.x_coords = np.arange(x_min, x_max + increment, increment)
+        self.y_coords = np.arange(y_min, y_max + increment, increment)
+        xx, yy = np.meshgrid(self.x_coords, self.y_coords, indexing='ij')
+        self.lattice = np.column_stack([xx.ravel(), yy.ravel()])
+        print(f'lattice.shape = {self.lattice.shape}')
+        
+        # separate points into clusters (number of clusters may vary from 1 to 3) -1==noise; 0==least dense; 1==denser than 0; 2==denser than 1
+        unique_cluster_levels = np.unique(cluster_levels)
+        self.points_per_cluster = []
+        for cluster_level in unique_cluster_levels:
+            # do not includes points associated with noise
+            if cluster_level != -1:
+                mask = (self.cluster_levels == cluster_level)
+                self.points_per_cluster.append(points[mask])
+
+        # instantiate a FFTKDE class, one per bandwidth
+        self.kde_obj_per_cluster = []
+        for bw in bandwidths:
+            obj = FFTKDE(kernel='gaussian', bw=bw)
+            self.kde_obj_per_cluster.append(obj)
+
+    def fit_kde_model(self):
+        # fit a kde model for each cluster of input data
+        if len(self.kde_obj_per_cluster) != len(self.points_per_cluster):
+            raise ValueError(
+                f"Expected one bandwidth per cluster: got "
+                f"{len(self.kde_obj_per_cluster)} bandwidths and "
+                f"{len(self.points_per_cluster)} clusters."
+            )
+        self.kde_model_per_cluster = []
+        for kde_obj, points in zip(self.kde_obj_per_cluster, self.points_per_cluster):
+            model = kde_obj.fit(data=points)
+            self.kde_model_per_cluster.append(model)
+
+    def evaluate_kde_model(self):
+        # apply the kde model to the mesh grid
+        start = time.perf_counter()
+        density_surface_per_cluster = []
+        for kde_model in self.kde_model_per_cluster:
+            density_surface_per_cluster.append(kde_model.evaluate(grid_points=self.lattice))
+        # summation represents the density surface of the full model    
+        self.density_surface = np.sum(density_surface_per_cluster, axis=0)
+        end = time.perf_counter()
+        print(f'time to compute density_surface: {end - start:.4f} seconds')
+        print(f'density_surface.shape = {self.density_surface.shape}')
+
+    def generate_heatmap_image(self):
+        # reshape the density values to a rectangular grid
+        density_grid = self.density_surface.reshape(self.x_coords.shape[0], self.y_coords.shape[0]).T
+        # apply gaussian_filter to fix the square/blocky artifact
+        density_grid_smoothed = gaussian_filter(density_grid, sigma=2)
+
+        # set a threshold for removing very low density values
+        threshold_percentile = np.percentile(density_grid_smoothed, 1)
+        threshold_based_on_max = density_grid_smoothed.max() * 0.01
+        threshold = max(threshold_percentile, threshold_based_on_max)
+        print("threshold = " + str(threshold))
+        density_grid_masked = np.ma.masked_where(density_grid_smoothed < threshold, density_grid_smoothed)
+
+        # color map for coloring the heat map
+        colors = [
+            (0, 0, 1, 0),      # transparent blue (lowest density)
+            (0, 0, 1, 1),      # opaque blue
+            (1, 1, 0, 1),      # yellow
+            (1, 0.5, 0, 1),    # orange
+            (1, 0, 0, 1),      # red (highest density)
+        ]
+
+        heat_cmap = LinearSegmentedColormap.from_list('heat_fade', colors)
+
+        # set the figure size to 8-inches x 8-inches
+        fig, ax = plt.subplots(figsize=(8, 8))
+        cmap = heat_cmap.copy()
+        cmap.set_bad(alpha=0)
+
+        # create the image and output as a png file
+        im = ax.imshow(
+            density_grid_masked,
+            origin='lower',
+            extent=[self.x_min_lattice, self.x_max_lattice, self.y_min_lattice, self.y_max_lattice],
+            cmap=cmap,
+            aspect='equal',
+            interpolation='bilinear',
+            norm=PowerNorm(gamma=0.5)
+        )
+
+        # ax.axis('off')
+        fig.colorbar(im, ax=ax, label='Density')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_title('KDE Density Surface')
+
+        plt.savefig('density_surface.png', dpi=300, bbox_inches='tight', transparent=True)
+        plt.close()
+
+        # transform from pixel coordinates to real-world spatial coordinates
+        transform_src = from_origin(self.x_min_lattice, self.y_max_lattice, self.increment_lattice, self.increment_lattice)
+
+        src_meta = {
+            "driver": "GTiff",
+            "height": density_grid_masked.shape[0],
+            "width": density_grid_masked.shape[1],
+            "count": 1,
+            "dtype": "float32",
+            "crs": "EPSG:2882",
+            "transform": transform_src
+        }
+
+        # create tif file with the masked density surface values and coordinates
+        with rasterio.open("density_src.tif", "w", **src_meta) as dst:
+            dst.write(np.flipud(density_grid_masked.filled(0)).astype("float32"), 1)
+
+        # re-project the tif file into latitude/longitude coordinate system
+        with rasterio.open("density_src.tif") as src:
+            dst_transform, width, height = calculate_default_transform(
+                src.crs, "EPSG:4326", src.width, src.height, *src.bounds
+            )
+            dst_meta = src.meta.copy()
+            dst_meta.update({
+                "crs": "EPSG:4326",
+                "transform": dst_transform,
+                "width": width,
+                "height": height,
+            })
+
+            with rasterio.open("density_wgs84.tif", "w", **dst_meta) as dst:
+                reproject(
+                    source=rasterio.band(src, 1),
+                    destination=rasterio.band(dst, 1),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=dst_transform,
+                    dst_crs="EPSG:4326",
+                    resampling=Resampling.bilinear,
+                )
+
+        # retrieve the pixel values and min/max boundary coordinates from the tif file
+        with rasterio.open("density_wgs84.tif") as src:
+            warped = src.read(1)
+            bounds = src.bounds  # left, bottom, right, top in lat/lon
+
+        # normalization object that maps data values from 0 to 1 range
+        norm = PowerNorm(gamma=0.5)(warped)
+        # apply color-coding from png file to the latitude/longitude re-projection
+        rgba = cmap(norm)
+
+        # write the colorized array out to a PNG file
+        plt.imsave("density_overlay.png", rgba)
+
+        # being returned to define the bounds for Folium
+        return bounds
+
+
+        
 
 def load_points() -> np.ndarray:
     """
@@ -117,35 +264,45 @@ def loo_neg_log_likelihood(cur_bw_diffs: np.ndarray, point_groups: list[np.ndarr
 
         # negative log-likelihood
         return -np.sum(np.log(f_loo))
-    except(ValueError, FloatingPointError):
+    except (ValueError, FloatingPointError):
         # large penalty to protect against the minimizer searching extremely large bandwidth values that cause an error with FFTKDE
         return 1e10
 
+
+#----------------------KDE heatmap overflay generated below--------------------------------------------------------------------
+
+# REPLACE CLUSTER LEVEL ASSIGNMENTS WITH CALL TO DBSCAN MODULE DURING APP INTEGRATION
+# cluster level for testing (-1 == noise; 0 = least dense; 1 = denser than 0)
+dbscan_cluster_levels = np.array([0, 0, 1, 1, 1, 1, 1, -1, 1, -1, 1, 0, 1, 1, 0, 1, 1, 0, -1, 1, 1, 
+                        0, 0, 0, -1, 1, 1, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 
+                        0, 1, -1, 1, 1, 1, 1, 1, -1, 1, 1, 0, 1, -1, 0, 1, 1, 0, 1, 1, 1, 
+                        1, 1, -1, 0, 1, 0, 1, 1, -1, 1, 1, 1, 1, 0, 0, 0, 0, -1, 1, 1, 0, 
+                        -1, 0, 1, 1, -1, 1, 0, -1, -1, 1, 0, 1, 1, -1, 1, -1, 1, 1, 1, 1, 
+                        -1, 1, 0, 1, 1, 0, 1, 0, -1, 1, 0, 0, 1, 1, -1, 0, -1, 1, 1, 1, -1, 
+                        1, 0, 1, -1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, -1, 1, 0, 1, 1, 1, 1, 1, 
+                        -1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, -1, 1, 1, 1, -1, 1, 0, 1, -1, 
+                        -1, 0, 0, 1, 1, -1, 0, 0, -1, 1, 1, -1, 1, 1, 1, 1, 0, 0, -1, 0, 1, 
+                        1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 
+                        1, 1, -1, -1, -1, 1, 0, 0, 1, 1, -1, 1, 1, 0, 0, 0, 1, -1, -1, 0, 1, 
+                        -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 0, 1, -1, 0])
+
+# TESTING - reallocate all non-noise points to the same cluster (i.e. cluster == 0)
+dbscan_cluster_levels[dbscan_cluster_levels == 1] = 0
+
+#CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv")
+CSV_PATH = os.path.join(
+    os.path.dirname(__file__), 
+    "late-paper-81460214_production_neondb_2026-07-06_13-14-24.csv"
+)
 
 # input data based on a sample of x-y coordinates (easting/northing) from County incident data
 data_points_with_noise, latitude, longitude = load_points()
 easting = data_points_with_noise[:, 0]
 northing = data_points_with_noise[:, 1]
-
-mask_noise = (dbscan_cluster_level != -1)
+mask_noise = (dbscan_cluster_levels != -1)
 data_points_without_noise = data_points_with_noise[mask_noise]
 
-
-'''
-
-# data points separated into their corresponding cluster levels (as defined from DBSCAN)
-# index 0 is least dense; density increases as index increases
-num_cluster_levels = np.max(dbscan_cluster_level) + 1
-print(f'num_cluster_levels = {num_cluster_levels}')
-data_points_per_cluster_level = []
-for i in range(0, num_cluster_levels):
-    mask = (dbscan_cluster_level == i)
-    temp_arr = data_points_with_noise[mask]
-    data_points_per_cluster_level.append(temp_arr)
-'''
-
-
-# create a mesh grid (lattice structure) to represent the corrsponding map coordinates
+# define range of mesh grid (lattice structure) to represent the corresponding map coordinates
 padding = 100
 x_min = np.min(easting) - padding
 x_max = np.max(easting) + padding
@@ -153,11 +310,6 @@ y_min = np.min(northing) - padding
 y_max = np.max(northing) + padding
 increment = 300
 print(f'increment = {increment}')
-x_coords = np.arange(x_min, x_max + increment, increment)
-y_coords = np.arange(y_min, y_max + increment, increment)
-xx, yy = np.meshgrid(x_coords, y_coords, indexing='ij')
-lattice = np.column_stack([xx.ravel(), yy.ravel()])
-print(f'lattice.shape = {lattice.shape}')
 
 #bandwidth optimization (explore different starting points - optimizer tends to get stuck on floor value without providing range of starting values for lowest bandwidth)
 candidate_starts_lowest_bw = [10, 100, 1000]
@@ -165,7 +317,7 @@ best_result = None
 
 for bw_guess in candidate_starts_lowest_bw:
     initial_bw_diffs = np.log([bw_guess])
-    res = minimize(loo_neg_log_likelihood, initial_bw_diffs, args=([data_points_without_noise], x_coords, y_coords), method='Nelder-Mead')
+    res = minimize(loo_neg_log_likelihood, initial_bw_diffs, args=([data_points_without_noise], np.arange(x_min, x_max + increment, increment), np.arange(y_min, y_max + increment, increment)), method='Nelder-Mead')
     if best_result is None or res.fun < best_result.fun:
         best_result = res
 
@@ -177,124 +329,21 @@ optimized_bandwidth = unpack_bandwidths(best_result.x)[0]
 
 print(f'optimized_bandwidth = {optimized_bandwidth}')
 p_bandwidth = optimized_bandwidth / increment
-print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (4 * p_bandwidth**2)))} percent')
-
-# instantiate a FFTKDE class
-kde_obj = FFTKDE(kernel='gaussian', bw=optimized_bandwidth)
-
-# fit the kde model to the input data
-kde_model = kde_obj.fit(data=data_points_without_noise)
-
-# apply the kde model to the mesh grid (store output as log(density))
-start = time.perf_counter()
-density_surface = kde_model.evaluate(grid_points=lattice)
-end = time.perf_counter()
-
-print(f'time to compute density_surface: {end - start:.4f} seconds')
-print(f'density_surface.shape = {density_surface.shape}')
-
-# reshape the density values to a rectangular grid
-density_grid = density_surface.reshape(x_coords.shape[0], y_coords.shape[0]).T
-# Then apply gaussian_filter to fix the square/blocky artifact
-density_grid_smoothed = gaussian_filter(density_grid, sigma=2)
-
-# set a threshold for removing very low density values
-threshold_percentile = np.percentile(density_grid_smoothed, 1)
-threshold_max_based = density_grid_smoothed.max() * 0.01
-threshold = max(threshold_percentile, threshold_max_based)
-print("threshold = " + str(threshold))
-density_grid_masked = np.ma.masked_where(density_grid_smoothed < threshold, density_grid_smoothed)
-
-# color map for coloring the heat map
-colors = [
-    (0, 0, 1, 0),      # transparent blue (lowest density)
-    (0, 0, 1, 1),      # opaque blue
-    (1, 1, 0, 1),      # yellow
-    (1, 0.5, 0, 1),    # orange
-    (1, 0, 0, 1),      # red (highest density)
-]
-
-heat_cmap = LinearSegmentedColormap.from_list('heat_fade', colors)
-
-# set the figure size to 8-inches x 8-inches
-fig, ax = plt.subplots(figsize=(8, 8))
-cmap = heat_cmap.copy()
-cmap.set_bad(alpha=0)
-
-# create the image and output as a png file
-im = ax.imshow(
-	density_grid_masked,
-	origin='lower',
-	extent=[x_min, x_max, y_min, y_max],
-	cmap=cmap,
-	aspect='equal',
-	interpolation='bilinear',
-	norm=PowerNorm(gamma=0.5)
-)
-
-# ax.axis('off')
-fig.colorbar(im, ax=ax, label='Density')
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_title('KDE Density Surface')
-
-plt.savefig('density_surface.png', dpi=300, bbox_inches='tight', transparent=True)
-plt.close()
+print(f'p_bandwidth = {p_bandwidth} corresponds to error tolerance of {100 * (1 - np.exp(-1 / (p_bandwidth**2)))} percent')
 
 
-# transform from pixel coordinates to real-world spatial coordinates
-transform_src = from_origin(x_min, y_max, increment, increment)
+# instantiate a KDE object
+kde_obj = KDE_Heatmap(points=data_points_with_noise, cluster_levels=dbscan_cluster_levels, bandwidths=[optimized_bandwidth], x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max, increment=increment)
+# fit the KDE model
+kde_obj.fit_kde_model() 
+# evaluate the KDE model
+kde_obj.evaluate_kde_model()
+# generate the heat map overlay PNG image file
+bounds = kde_obj.generate_heatmap_image()
+print(f'bounds = {bounds}')
 
-src_meta = {
-    "driver": "GTiff",
-    "height": density_grid_masked.shape[0],
-    "width": density_grid_masked.shape[1],
-    "count": 1,
-    "dtype": "float32",
-    "crs": "EPSG:2882",
-    "transform": transform_src
-}
 
-# create tif file with the masked density surface values and coordinates
-with rasterio.open("density_src.tif", "w", **src_meta) as dst:
-    dst.write(np.flipud(density_grid_masked.filled(0)).astype("float32"), 1)
 
-# re-project the tif file into latitude/longitude coordinate system
-with rasterio.open("density_src.tif") as src:
-    dst_transform, width, height = calculate_default_transform(
-        src.crs, "EPSG:4326", src.width, src.height, *src.bounds
-    )
-    dst_meta = src.meta.copy()
-    dst_meta.update({
-        "crs": "EPSG:4326",
-        "transform": dst_transform,
-        "width": width,
-        "height": height,
-    })
-
-    with rasterio.open("density_wgs84.tif", "w", **dst_meta) as dst:
-        reproject(
-            source=rasterio.band(src, 1),
-            destination=rasterio.band(dst, 1),
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=dst_transform,
-            dst_crs="EPSG:4326",
-            resampling=Resampling.bilinear,
-        )
-
-# retrieve the pixel values and min/max boundary coordinates from the tif file
-with rasterio.open("density_wgs84.tif") as src:
-    warped = src.read(1)
-    bounds = src.bounds  # left, bottom, right, top in lat/lon
-
-# normalization object that maps data values from 0 to 1 range
-norm = PowerNorm(gamma=0.5)(warped)
-# apply color-coding from png file to the latitude/longitude re-projection
-rgba = cmap(norm)
-
-# write the colorized array out to a PNG file
-plt.imsave("density_overlay.png", rgba)
 
 #----------------------API functionality below--------------------------------------------------------------------
 
