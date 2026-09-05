@@ -1,8 +1,8 @@
 """
-This module defines class KDE_Heatmap.  The class uses the FFTKDE module from
-the KDEpy package to build a KDE (kernel density estimation) 
-model for inputs of x-y coordinate data points and bandwidths cooresponding 
-to each data point.  It ultimately generates a png image of a KDE heat map.
+This module defines the KDEHeatMap class, which uses the FFTKDE class from
+the KDEpy package to build a KDE (kernel density estimation) model from
+x-y coordinate data points and a bandwidth corresponding to each cluster level.
+The class generates a PNG image of the resulting KDE heat map.
 """
 
 import time
@@ -16,7 +16,7 @@ import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_origin
 
-class KDE_Heatmap:
+class KDEHeatMap:
     """Heat map class for generating a png image of a KDE density surface."""
 
     def __init__(self, points, cluster_levels, bandwidths, x_min, y_min, x_max, y_max, increment):
@@ -39,7 +39,7 @@ class KDE_Heatmap:
         unique_cluster_levels = np.unique(cluster_levels)
         self.points_per_cluster = []
         for cluster_level in unique_cluster_levels:
-            # do not includes points associated with noise
+            # do not include points associated with noise
             if cluster_level != -1:
                 mask = (self.cluster_levels == cluster_level)
                 self.points_per_cluster.append(points[mask])
