@@ -46,9 +46,11 @@ class KDEHeatMap:
 
         # instantiate a FFTKDE class, one per bandwidth
         self.kde_obj_per_cluster = []
+        self.rescale = []
         for bw in bandwidths:
-            obj = FFTKDE(kernel='gaussian', bw=bw)
-            self.kde_obj_per_cluster.append(obj)
+            self.rescale.append(bw)
+            kde_obj = FFTKDE(kernel='gaussian', bw=1.0)
+            self.kde_obj_per_cluster.append(kde_obj)
 
     def fit_kde_model(self):
         # fit a kde model for each cluster of input data
@@ -59,16 +61,25 @@ class KDEHeatMap:
                 f"{len(self.points_per_cluster)} clusters."
             )
         self.kde_model_per_cluster = []
-        for kde_obj, points in zip(self.kde_obj_per_cluster, self.points_per_cluster):
-            model = kde_obj.fit(data=points)
-            self.kde_model_per_cluster.append(model)
+        for kde_obj, points, factor in zip(self.kde_obj_per_cluster, self.points_per_cluster, self.rescale):
+            kde_model = kde_obj.fit(data=(points / factor))
+            # r_star represents FFTKDE's kernel truncation radius
+            r_star_implicit = kde_obj.kernel.practical_support(kde_obj.bw)
+            r_star_explicit = kde_obj.kernel.practical_support(kde_obj.bw, atol=1e-4)
+            if(r_star_implicit != r_star_explicit):
+                print(f"r_star unequal: {r_star_implicit} (implicit) vs {r_star_explicit} (explicit)")
+            else:
+                print(f"r_star: {r_star_implicit} (Kernel practical_support function)")
+            self.kde_model_per_cluster.append(kde_model)
 
     def evaluate_kde_model(self):
         # apply the kde model to the mesh grid
         start = time.perf_counter()
         density_surface_per_cluster = []
-        for kde_model in self.kde_model_per_cluster:
-            density_surface_per_cluster.append(kde_model.evaluate(grid_points=self.lattice))
+        for kde_model, factor in zip(self.kde_model_per_cluster, self.rescale):
+            density_surface_scaled_1d = kde_model.evaluate(grid_points=(self.lattice / factor))            
+            density_surface_rescaled_2d = density_surface_scaled_1d.reshape(self.x_coords.shape[0], self.y_coords.shape[0]) / factor**2
+            density_surface_per_cluster.append(density_surface_rescaled_2d)
         # summation represents the density surface of the full model    
         self.density_surface = np.sum(density_surface_per_cluster, axis=0)
         end = time.perf_counter()
@@ -78,15 +89,13 @@ class KDEHeatMap:
     def generate_heatmap_image(self):
         # reshape the density values to a rectangular grid
         density_grid = self.density_surface.reshape(self.x_coords.shape[0], self.y_coords.shape[0]).T
-        # apply gaussian_filter to fix the square/blocky artifact
-        density_grid_smoothed = gaussian_filter(density_grid, sigma=2)
 
         # set a threshold for removing very low density values
-        threshold_percentile = np.percentile(density_grid_smoothed, 1)
-        threshold_based_on_max = density_grid_smoothed.max() * 0.01
+        threshold_percentile = np.percentile(density_grid, 0.01)
+        threshold_based_on_max = density_grid.max() * 0.0001
         threshold = max(threshold_percentile, threshold_based_on_max)
         print("threshold = " + str(threshold))
-        density_grid_masked = np.ma.masked_where(density_grid_smoothed < threshold, density_grid_smoothed)
+        density_grid_masked = np.ma.masked_where(density_grid < threshold, density_grid)
 
         # color map for coloring the heat map
         colors = [
